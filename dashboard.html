@@ -1,0 +1,2707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram Bot Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        /* Settings Modal Styles */
+        .settings-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .settings-content {
+            background-color: white;
+            margin: 2% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+        }
+        .settings-close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            position: absolute;
+            right: 15px;
+            top: 10px;
+        }
+        .settings-close:hover {
+            color: #000;
+        }
+        .settings-section {
+            margin-bottom: 25px;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background: #f9f9f9;
+        }
+        .settings-section h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+        }
+        .setting-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .setting-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .setting-item label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        .setting-item input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .setting-item input:focus {
+            border-color: #007bff;
+            outline: none;
+        }
+        .setting-item .help-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 3px;
+        }
+        .settings-buttons {
+            text-align: center;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            margin-top: 20px;
+        }
+        .btn-settings {
+            padding: 10px 20px;
+            margin: 0 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .btn-save {
+            background: #28a745;
+            color: white;
+        }
+        .btn-reset {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-cancel {
+            background: #6c757d;
+            color: white;
+        }
+
+        /* Filter Selector Styles */
+        .filter-selector {
+            margin: 15px 0;
+            text-align: center;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .filter-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .filter-button {
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+        }
+        .vps-button {
+            background: linear-gradient(45deg, #6c5ce7, #a29bfe);
+        }
+        .phase-button {
+            background: linear-gradient(45deg, #00cec9, #55efc4);
+        }
+        .batch-button {
+            background: linear-gradient(45deg, #fd79a8, #fdcb6e);
+        }
+        .filter-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+        }
+        .filter-dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: white;
+            min-width: 200px;
+            box-shadow: 0px 8px 16px rgba(0,0,0,0.2);
+            border-radius: 6px;
+            z-index: 1000;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            margin-top: 5px;
+        }
+        .filter-dropdown-content.show {
+            display: block;
+        }
+        .filter-option {
+            color: #333;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .filter-option:hover {
+            background-color: #f1f1f1;
+        }
+        .filter-option.selected {
+            background-color: #007bff;
+            color: white;
+        }
+        .filter-indicator {
+            margin-left: 8px;
+            padding: 2px 8px;
+            background: rgba(255,255,255,0.3);
+            color: white;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .stats-bar {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        .stat-item {
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .filter-tabs {
+            display: flex;
+            gap: 8px;
+        }
+        .filter-tab {
+            padding: 12px 24px;
+            background: #e9ecef;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            min-width: 120px;
+            text-align: center;
+        }
+        .filter-tab:hover {
+            background: #dee2e6;
+            transform: translateY(-1px);
+        }
+        .filter-tab.active {
+            background: #007bff;
+            color: white;
+            box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .pagination button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .pagination button:hover:not(:disabled) {
+            background: #f8f9fa;
+        }
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .pagination .current-page {
+            font-weight: bold;
+            padding: 8px 12px;
+        }
+
+        /* Page Navigator Styles */
+        .page-navigator {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            font-weight: bold;
+        }
+        .page-input {
+            border: none;
+            outline: none;
+            width: 40px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 14px;
+            background: transparent;
+        }
+        .page-input:focus {
+            background: #f0f8ff;
+            border-radius: 2px;
+        }
+        .nav-arrow {
+            cursor: pointer;
+            padding: 2px 6px;
+            margin: 0 2px;
+            border-radius: 3px;
+            user-select: none;
+            font-size: 12px;
+            color: #666;
+        }
+        .nav-arrow:hover:not(.disabled) {
+            background: #e9ecef;
+            color: #333;
+        }
+        .nav-arrow.disabled {
+            color: #ccc;
+            cursor: not-allowed;
+        }
+        .profiles-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+        .profile-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px 24px;
+            background: white;
+            transition: box-shadow 0.2s;
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            min-height: 95px;
+        }
+        .profile-card:hover {
+            box-shadow: 0 3px 6px rgba(0,0,0,0.12);
+        }
+        .profile-card.selected {
+            border-color: #007bff;
+            background: #f0f8ff;
+        }
+        .profile-checkbox {
+            position: static;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            margin: 0;
+            flex-shrink: 0;
+        }
+        .profile-header {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            margin-bottom: 0;
+            padding-right: 0;
+            flex: 0 0 150px;
+        }
+        .profile-id {
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 5px;
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .status.running { background: #d4edda; color: #155724; }
+        .status.stopped { background: #f8d7da; color: #721c24; }
+        .status.not-running { background: #e2e3e5; color: #383d41; }
+        .status.finished { background: #d1ecf1; color: #0c5460; }
+        .status.error { background: #f5c6cb; color: #721c24; }
+        .status.blocked { background: #fff3cd; color: #856404; }
+        .status.suspended { background: #f8d7da; color: #721c24; }
+        .status.testing { background: #cce5ff; color: #004085; }
+        .status.pending { background: #fff3cd; color: #856404; }
+        .status.queueing { background: #e7f3ff; color: #004085; }
+
+        .profile-info {
+            flex: 1;
+            margin-bottom: 0;
+            font-size: 15px;
+            min-width: 0;
+        }
+        .profile-info strong {
+            font-size: 15px;
+        }
+        .profile-badges {
+            display: flex;
+            gap: 7px;
+            margin-top: 7px;
+            flex-wrap: wrap;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: bold;
+        }
+        .vps-badge {
+            background: #6c5ce7;
+            color: white;
+        }
+        .phase-badge {
+            background: #00cec9;
+            color: white;
+        }
+        .batch-badge {
+            background: #fd79a8;
+            color: white;
+        }
+        .profile-stats {
+            display: flex;
+            gap: 18px;
+            margin-bottom: 0;
+            font-size: 14px;
+            flex: 0 0 auto;
+        }
+        .stat-box {
+            text-align: center;
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            min-width: 60px;
+        }
+        .stat-number {
+            font-weight: bold;
+            font-size: 16px;
+            color: #333;
+            line-height: 1;
+        }
+        .stat-text {
+            color: #666;
+            margin-top: 3px;
+            font-size: 13px;
+        }
+        .profile-actions {
+            display: flex;
+            gap: 7px;
+            flex-wrap: nowrap;
+            flex: 0 0 auto;
+        }
+        .btn {
+            padding: 8px 14px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            text-transform: uppercase;
+            min-width: 60px;
+            white-space: nowrap;
+        }
+        .btn:hover {
+            opacity: 0.8;
+        }
+        .btn-start { background: #28a745; color: white; }
+        .btn-stop { background: #dc3545; color: white; }
+        .btn-test { background: #17a2b8; color: white; }
+        .btn-revive { background: #ffc107; color: black; }
+
+        .add-profile {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-left: auto;
+        }
+        .add-profile input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 120px;
+        }
+        .add-profile button {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .control-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            font-weight: 500;
+        }
+
+        /* Control Button Colors */
+        .btn-start-all {
+            background: linear-gradient(45deg, #28a745, #34ce57) !important;
+            color: white !important;
+            box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3) !important;
+        }
+        .btn-start-selected {
+            background: linear-gradient(45deg, #20c997, #1dd1a1) !important;
+            color: white !important;
+            box-shadow: 0 2px 4px rgba(32, 201, 151, 0.3) !important;
+        }
+        .btn-stop-selected {
+            background: linear-gradient(45deg, #e83e8c, #fd79a8) !important;
+            color: white !important;
+            box-shadow: 0 2px 4px rgba(232, 62, 140, 0.3) !important;
+        }
+        .btn-test-selected {
+            background: linear-gradient(45deg, #17a2b8, #20c9e4) !important;
+            color: white !important;
+            box-shadow: 0 2px 4px rgba(23, 162, 184, 0.3) !important;
+        }
+        .btn-settings {
+            background: linear-gradient(45deg, #6c5ce7, #a29bfe) !important;
+            color: white !important;
+            box-shadow: 0 2px 4px rgba(108, 92, 231, 0.3) !important;
+        }
+
+        .control-btn:hover {
+            transform: translateY(-1px) !important;
+            transition: all 0.2s ease !important;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .page-info {
+            text-align: center;
+            margin: 10px 0;
+            color: #666;
+            font-size: 14px;
+        }
+        .auto-refresh-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1000;
+        }
+        .auto-refresh-indicator.updating {
+            background: #ffc107;
+            color: black;
+        }
+
+        /* Success/Error messages */
+        .message {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+
+    </style>
+</head>
+<body>
+    <div class="auto-refresh-indicator" id="refreshIndicator">Auto-updating...</div>
+
+
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="settings-modal">
+        <div class="settings-content">
+            <span class="settings-close" onclick="closeSettings()">&times;</span>
+            <h2>⚙️ Bot Configuration Settings</h2>
+            <div id="settingsMessage"></div>
+
+            <!-- Delay Settings -->
+            <div class="settings-section">
+                <h3>🕒 Delay Settings (seconds)</h3>
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Between Follows (Min)</label>
+                        <input type="number" id="betweenFollowsMin" step="0.1" min="0.1">
+                        <div class="help-text">Minimum wait time between follows</div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Between Follows (Max)</label>
+                        <input type="number" id="betweenFollowsMax" step="0.1" min="0.1">
+                        <div class="help-text">Maximum wait time between follows</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Pre-Action Delay (Min)</label>
+                        <input type="number" id="preActionMin" step="0.1" min="0.1">
+                        <div class="help-text">Minimum pause before each follow action</div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Pre-Action Delay (Max)</label>
+                        <input type="number" id="preActionMax" step="0.1" min="0.1">
+                        <div class="help-text">Maximum pause before each follow action</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Page Load Wait (Min)</label>
+                        <input type="number" id="pageLoadMin" step="0.1" min="0.1">
+                        <div class="help-text">Minimum wait for pages to load</div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Page Load Wait (Max)</label>
+                        <input type="number" id="pageLoadMax" step="0.1" min="0.1">
+                        <div class="help-text">Maximum wait for pages to load</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Follow Check Timeout</label>
+                        <input type="number" id="followCheckTimeout" step="0.1" min="1">
+                        <div class="help-text">Max time to wait for follow confirmation</div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Profile Start Delay</label>
+                        <input type="number" id="profileStartDelay" step="0.1" min="0.1">
+                        <div class="help-text">Delay between starting profiles</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Break Settings -->
+            <div class="settings-section">
+                <h3>☕ Break Settings</h3>
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Extended Break Interval (Min)</label>
+                        <input type="number" id="breakIntervalMin" min="1">
+                        <div class="help-text">Min follows before extended break</div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Extended Break Interval (Max)</label>
+                        <input type="number" id="breakIntervalMax" min="1">
+                        <div class="help-text">Max follows before extended break</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Extended Break Duration (Min)</label>
+                        <input type="number" id="breakDurationMin" min="1">
+                        <div class="help-text">Minimum extended break time (seconds)</div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Extended Break Duration (Max)</label>
+                        <input type="number" id="breakDurationMax" min="1">
+                        <div class="help-text">Maximum extended break time (seconds)</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Very Long Break Chance</label>
+                        <input type="number" id="veryLongBreakChance" step="0.01" min="0" max="1">
+                        <div class="help-text">Probability (0-1) of very long breaks</div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Very Long Break Duration (Min)</label>
+                        <input type="number" id="veryLongBreakMin" min="1">
+                        <div class="help-text">Min very long break time (seconds)</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Very Long Break Duration (Max)</label>
+                        <input type="number" id="veryLongBreakMax" min="1">
+                        <div class="help-text">Max very long break time (seconds)</div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Hourly Reset Break (Min)</label>
+                        <input type="number" id="hourlyResetMin" min="1">
+                        <div class="help-text">Min break when hourly limit reached</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Hourly Reset Break (Max)</label>
+                        <input type="number" id="hourlyResetMax" min="1">
+                        <div class="help-text">Max break when hourly limit reached</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Limit Settings -->
+            <div class="settings-section">
+                <h3>📊 Limit Settings</h3>
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Max Follows Per Hour</label>
+                        <input type="number" id="maxFollowsPerHour" min="1">
+                        <div class="help-text">Maximum follows allowed per hour</div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Max Follows Per Profile (Min)</label>
+                        <input type="number" id="maxFollowsProfileMin" min="1">
+                        <div class="help-text">Minimum follows per profile session</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-item">
+                        <label>Max Follows Per Profile (Max)</label>
+                        <input type="number" id="maxFollowsProfileMax" min="1">
+                        <div class="help-text">Maximum follows per profile session</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-buttons">
+                <button class="btn-settings btn-save" onclick="saveSettings()">💾 Save Settings</button>
+                <button class="btn-settings btn-reset" onclick="resetToDefaults()">🔄 Reset to Defaults</button>
+                <button class="btn-settings btn-cancel" onclick="closeSettings()">❌ Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>Instagram Bot Dashboard</h1>
+            <div id="connectionStatus">Connecting...</div>
+
+            <!-- Filter Selectors: VPS, Phase, Batch -->
+            <div class="filter-selector">
+                <div class="filter-dropdown">
+                    <button class="filter-button vps-button" onclick="toggleFilterDropdown('vps')">
+                        VPS: <span id="currentVps">All</span>
+                        <span class="filter-indicator" id="vpsIndicator">ALL</span>
+                        ▼
+                    </button>
+                    <div class="filter-dropdown-content" id="vpsDropdown">
+                        <a class="filter-option selected" onclick="selectFilter('vps', 'all', 'All')">All VPS</a>
+                        <!-- Dynamic VPS options will be inserted here -->
+                    </div>
+                </div>
+
+                <div class="filter-dropdown">
+                    <button class="filter-button phase-button" onclick="toggleFilterDropdown('phase')">
+                        Phase: <span id="currentPhase">All</span>
+                        <span class="filter-indicator" id="phaseIndicator">ALL</span>
+                        ▼
+                    </button>
+                    <div class="filter-dropdown-content" id="phaseDropdown">
+                        <a class="filter-option selected" onclick="selectFilter('phase', 'all', 'All')">All Phases</a>
+                        <!-- Dynamic Phase options will be inserted here -->
+                    </div>
+                </div>
+
+                <div class="filter-dropdown">
+                    <button class="filter-button batch-button" onclick="toggleFilterDropdown('batch')">
+                        Batch: <span id="currentBatch">All</span>
+                        <span class="filter-indicator" id="batchIndicator">ALL</span>
+                        ▼
+                    </button>
+                    <div class="filter-dropdown-content" id="batchDropdown">
+                        <a class="filter-option selected" onclick="selectFilter('batch', 'all', 'All')">All Batches</a>
+                        <!-- Dynamic Batch options will be inserted here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-bar">
+            <div class="stat-item">
+                <div class="stat-value" id="totalProfiles">0</div>
+                <div class="stat-label">Total Profiles</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="activeProfiles">0</div>
+                <div class="stat-label">Active</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="pendingProfiles">0</div>
+                <div class="stat-label">Pending</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="remainingUsernames">0</div>
+                <div class="stat-label">Usernames Left</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="filter-tabs">
+                <button class="filter-tab active" onclick="setFilter('all')">All Accounts</button>
+                <button class="filter-tab" onclick="setFilter('alive')">Alive</button>
+                <button class="filter-tab" onclick="setFilter('blocked')">Blocked</button>
+                <button class="filter-tab" onclick="setFilter('suspended')">Suspended</button>
+            </div>
+
+            <div class="add-profile">
+                <button class="control-btn btn-settings" onclick="openSettings()">⚙️ Settings</button>
+                <button class="control-btn btn-start-all" onclick="startAllProfiles()">Start All</button>
+                <button class="control-btn btn-start-selected" onclick="startSelectedProfiles()">Start Selected</button>
+                <button class="control-btn btn-stop-selected" onclick="stopSelectedProfiles()">Stop Selected</button>
+                <button class="control-btn btn-test-selected" id="testSelectedBtn" style="display: none;" onclick="testSelectedProfiles()">Test Selected</button>
+            </div>
+        </div>
+
+        <!-- Range Selector -->
+        <div class="controls" style="margin-top: 10px;">
+            <div class="range-selector" style="display: flex; align-items: center; gap: 10px;">
+                <label style="font-weight: bold;">Start Range:</label>
+                <input type="number" id="startRange" min="1" placeholder="From" style="width: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                <span>to</span>
+                <input type="number" id="endRange" min="1" placeholder="To" style="width: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                <button class="control-btn btn-start-selected" onclick="startRangeProfiles()">Start Range</button>
+            </div>
+        </div>
+
+        <!-- Pagination removed - showing all profiles -->
+
+        <div id="profilesContainer">
+            <div class="loading">Loading profiles...</div>
+        </div>
+
+        <!-- Pagination removed - showing all profiles -->
+    </div>
+
+    <script>
+        let currentPage = 1;
+        let currentFilter = 'all';
+        let currentVps = 'all';
+        let currentPhase = 'all';
+        let currentBatch = 'all';
+        let totalPages = 1;
+        let allProfiles = {}; // Store all profiles data
+        const perPage = 10000; // Show all profiles
+        let selectedProfiles = new Set();
+        let autoRefreshInterval;
+        let lastSelectedProfile = null;
+        let currentProfileIds = [];
+        let isUpdating = false;
+        let vpsOptions = [];
+        let phaseOptions = [];
+        let batchOptions = [];
+        let currentConfig = null;
+
+        // Performance optimizations
+        let requestAbortController = null;
+        let loadProfilesTimeout = null;
+
+        // Batch operation management
+        let batchOperationCancelled = false;
+        let currentBatchOperation = null;
+
+        // Pagination removed - this function is no longer needed
+        function changePage(newPage) {
+            return; // Do nothing - all profiles are shown on one page
+            /*
+            if (newPage < 1 || newPage > totalPages || newPage === currentPage) {
+                return;
+            }*/
+
+            console.log(`Changing from page ${currentPage} to page ${newPage}`);
+
+            // Don't update currentPage until data is loaded successfully
+            const previousPage = currentPage;
+
+            // Clear selections when changing pages to avoid confusion
+            selectedProfiles.clear();
+            lastSelectedProfile = null;
+
+            // Show loading state with the target page
+            showLoadingStateForPage(newPage);
+
+            // Load new page data
+            loadProfilesForPage(newPage, previousPage);
+        }
+
+        function showLoadingStateForPage(targetPage) {
+            const container = document.getElementById('profilesContainer');
+            container.innerHTML = `<div class="loading">Loading page ${targetPage}...</div>`;
+        }
+
+        function loadProfilesForPage(targetPage, fallbackPage) {
+            console.log(`Loading data for page ${targetPage}`);
+
+            // Cancel any pending request
+            if (requestAbortController) {
+                requestAbortController.abort();
+            }
+
+            if (isUpdating) {
+                console.log('Already updating, will retry in 500ms');
+                setTimeout(() => loadProfilesForPage(targetPage, fallbackPage), 500);
+                return;
+            }
+
+            isUpdating = true;
+            updateRefreshIndicator(true);
+
+            // Create new abort controller for this request
+            requestAbortController = new AbortController();
+
+            const url = `/api/status?page=${targetPage}&per_page=${perPage}&filter=${currentFilter}&vps=${currentVps}&phase=${currentPhase}&batch=${currentBatch}`;
+
+            console.log('Loading profiles from:', url);
+
+            const timeoutId = setTimeout(() => {
+                console.log('Request timeout after 15 seconds');
+                if (requestAbortController) {
+                    requestAbortController.abort();
+                    handlePageLoadError(new Error('Page load timeout'), fallbackPage);
+                }
+            }, 15000);
+
+            fetch(url, {
+                signal: requestAbortController.signal,
+                headers: {
+                    'Cache-Control': 'no-cache'
+                }
+            })
+                .then(response => {
+                    clearTimeout(timeoutId);
+                    console.log('Page response received:', response.status, response.statusText);
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Page data received successfully for page', targetPage);
+
+                    // Validate data structure
+                    if (!data || typeof data !== 'object') {
+                        throw new Error('Invalid data format received from server');
+                    }
+
+                    // Only update currentPage after successful data load
+                    currentPage = targetPage;
+                    console.log(`Successfully changed to page ${currentPage}`);
+
+                    // Update UI with new data
+                    updateStatsOptimized(data);
+                    allProfiles = data.profiles || {};
+                    displayProfilesOptimized(allProfiles);
+                    // Pagination removed - updatePaginationOptimized(data.pagination || {});
+                    updateFilterDropdownsOptimized(data);
+                    
+                    // Update page input fields to show the new page number
+                    updatePageInputs();
+
+                    updateRefreshIndicator(false);
+                    isUpdating = false;
+                    requestAbortController = null;
+
+                    // Reset connection status to success
+                    document.getElementById('connectionStatus').textContent = 'Connected';
+                    document.getElementById('connectionStatus').style.color = '';
+
+                    console.log(`Page ${currentPage} loaded successfully with ${Object.keys(data.profiles || {}).length} profiles`);
+                })
+                .catch(error => {
+                    clearTimeout(timeoutId);
+                    console.error('Page load error:', error.name, error.message);
+
+                    if (error.name === 'AbortError') {
+                        console.log('Page load request was cancelled');
+                        isUpdating = false;
+                        requestAbortController = null;
+                        return;
+                    }
+
+                    console.error('Failed to load page', targetPage, ':', error);
+                    handlePageLoadError(error, fallbackPage);
+                });
+        }
+
+        function handlePageLoadError(error, fallbackPage) {
+            console.log(`Page load failed, reverting to page ${fallbackPage}`);
+
+            // Revert to previous page
+            currentPage = fallbackPage;
+
+            updateRefreshIndicator(false);
+            isUpdating = false;
+            requestAbortController = null;
+
+            // Show error message
+            const container = document.getElementById('profilesContainer');
+            container.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #dc3545;">
+                    <h3>⚠️ Page Load Failed</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                    <p>Could not load page data. Staying on page ${currentPage}.</p>
+                    <button onclick="retryPageLoad(${fallbackPage})" style="
+                        background: #007bff;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        margin: 10px;
+                    ">🔄 Retry</button>
+                </div>
+            `;
+
+            // Update pagination to show correct page
+            createPaginationControls();
+
+            // Update connection status
+            document.getElementById('connectionStatus').textContent = `Page Load Error`;
+            document.getElementById('connectionStatus').style.color = '#dc3545';
+        }
+
+        function retryPageLoad(targetPage) {
+            console.log(`Retrying page load for page ${targetPage}`);
+            showLoadingStateForPage(targetPage);
+            setTimeout(() => loadProfilesForPage(targetPage, currentPage), 500);
+        }
+
+        function loadProfilesFast() {
+            console.log('loadProfilesFast called, isUpdating:', isUpdating);
+
+            // Don't cancel if this is the initial load
+            if (requestAbortController && isUpdating) {
+                console.log('Cancelling previous request');
+                requestAbortController.abort();
+            }
+
+            // Clear any pending timeout
+            if (loadProfilesTimeout) {
+                clearTimeout(loadProfilesTimeout);
+            }
+
+            if (isUpdating) {
+                console.log('Already updating, skipping...');
+                return;
+            }
+
+            isUpdating = true;
+            updateRefreshIndicator(true);
+
+            // Create new abort controller for this request
+            requestAbortController = new AbortController();
+
+            const url = `/api/status?page=${currentPage}&per_page=${perPage}&filter=${currentFilter}&vps=${currentVps}&phase=${currentPhase}&batch=${currentBatch}`;
+
+            console.log('Loading profiles from:', url);
+
+            // Increased timeout to 30 seconds for slow servers
+            const timeoutId = setTimeout(() => {
+                console.log('Request timeout after 30 seconds');
+                if (requestAbortController) {
+                    requestAbortController.abort();
+                    handleLoadingError(new Error('Request timeout (30s) - server is taking too long to respond'));
+                }
+            }, 30000);
+
+            fetch(url, {
+                signal: requestAbortController.signal,
+                headers: {
+                    'Cache-Control': 'no-cache'
+                }
+            })
+                .then(response => {
+                    clearTimeout(timeoutId);
+                    console.log('Response received:', response.status, response.statusText);
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Data received successfully:', Object.keys(data));
+
+                    // Validate data structure
+                    if (!data || typeof data !== 'object') {
+                        throw new Error('Invalid data format received from server');
+                    }
+
+                    // Fast UI updates
+                    updateStatsOptimized(data);
+                    allProfiles = data.profiles || {};
+                    displayProfilesOptimized(allProfiles);
+                    // Pagination removed - updatePaginationOptimized(data.pagination || {});
+                    updateFilterDropdownsOptimized(data);
+
+                    updateRefreshIndicator(false);
+                    isUpdating = false;
+                    requestAbortController = null;
+
+                    // Reset connection status to success
+                    document.getElementById('connectionStatus').textContent = 'Connected';
+                    document.getElementById('connectionStatus').style.color = '';
+
+                    console.log('Profile loading completed successfully');
+                })
+                .catch(error => {
+                    clearTimeout(timeoutId);
+                    console.error('Fetch error:', error.name, error.message);
+
+                    if (error.name === 'AbortError') {
+                        console.log('Request was cancelled (AbortError)');
+                        // Don't show error for cancelled requests unless it was a timeout
+                        isUpdating = false;
+                        requestAbortController = null;
+                        return;
+                    }
+
+                    console.error('Actual error loading profiles:', error);
+                    handleLoadingError(error);
+                });
+        }
+
+        function handleLoadingError(error) {
+            updateRefreshIndicator(false);
+            isUpdating = false;
+            requestAbortController = null;
+
+            // Show error message in the container
+            const container = document.getElementById('profilesContainer');
+            container.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #dc3545;">
+                    <h3>⚠️ Loading Error</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                    <p>Possible causes:</p>
+                    <ul style="text-align: left; display: inline-block; margin: 20px 0;">
+                        <li>Backend server is not running</li>
+                        <li>Database connection issues</li>
+                        <li>Network connectivity problems</li>
+                        <li>Server overload or timeout</li>
+                    </ul>
+                    <button onclick="retryLoading()" style="
+                        background: #007bff;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        margin: 10px;
+                    ">🔄 Retry Loading</button>
+                    <button onclick="checkServerStatus()" style="
+                        background: #17a2b8;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        margin: 10px;
+                    ">🔍 Check Server Status</button>
+                </div>
+            `;
+
+            // Update connection status
+            document.getElementById('connectionStatus').textContent = `Error: ${error.message}`;
+            document.getElementById('connectionStatus').style.color = '#dc3545';
+
+            // Try fallback after a delay
+            setTimeout(() => {
+                console.log('Attempting fallback loading method...');
+                loadProfilesFallback();
+            }, 2000);
+        }
+
+        function retryLoading() {
+            console.log('Manual retry requested');
+            showLoadingState();
+            setTimeout(() => loadProfilesFast(), 500);
+        }
+
+        function checkServerStatus() {
+            console.log('Checking server status...');
+            const startTime = Date.now();
+
+            document.getElementById('connectionStatus').textContent = 'Testing connection...';
+
+            fetch('/api/status?page=1&per_page=1&filter=all', {
+                method: 'GET',
+                cache: 'no-cache'
+            })
+            .then(response => {
+                const responseTime = Date.now() - startTime;
+                const statusText = `Server Status: ${response.status} ${response.statusText}\n\n` +
+                      `Server is ${response.ok ? '✅ responding normally' : '❌ having issues'}\n` +
+                      `Response time: ${responseTime}ms\n\n` +
+                      (response.ok ?
+                        'The backend is working. Try clicking "Retry Loading".' :
+                        'The backend returned an error. Check your Python console for details.');
+
+                alert(statusText);
+
+                if (response.ok) {
+                    document.getElementById('connectionStatus').textContent = 'Connected';
+                    document.getElementById('connectionStatus').style.color = '#28a745';
+                } else {
+                    document.getElementById('connectionStatus').textContent = `Error ${response.status}`;
+                    document.getElementById('connectionStatus').style.color = '#dc3545';
+                }
+            })
+            .catch(error => {
+                const responseTime = Date.now() - startTime;
+                const errorText = `❌ Server Check Failed:\n${error.message}\n\n` +
+                      `Response time: ${responseTime}ms\n\n` +
+                      `Possible issues:\n` +
+                      `• Backend server not running (check Python console)\n` +
+                      `• Wrong port (should be localhost:8080)\n` +
+                      `• Firewall blocking connection\n` +
+                      `• Network connectivity issues`;
+
+                alert(errorText);
+
+                document.getElementById('connectionStatus').textContent = 'Connection Failed';
+                document.getElementById('connectionStatus').style.color = '#dc3545';
+            });
+        }
+
+        function loadProfilesFallback() {
+            console.log('Trying fallback loading method (simpler request)...');
+
+            fetch('/api/status', {
+                method: 'GET',
+                cache: 'no-cache'
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Fallback successful:', data);
+
+                updateStatsOptimized(data);
+                displayProfilesOptimized(data.profiles || {});
+                updatePaginationOptimized(data.pagination || {});
+                updateFilterDropdownsOptimized(data);
+
+                document.getElementById('connectionStatus').textContent = 'Connected (Fallback)';
+                document.getElementById('connectionStatus').style.color = '#28a745';
+            })
+            .catch(error => {
+                console.error('Fallback also failed:', error);
+
+                // Show final error state
+                const container = document.getElementById('profilesContainer');
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #dc3545;">
+                        <h3>❌ Unable to Connect</h3>
+                        <p>Both primary and fallback loading methods failed.</p>
+                        <p><strong>Please check:</strong></p>
+                        <ul style="text-align: left; display: inline-block; margin: 20px 0;">
+                            <li>✅ Python backend script is running</li>
+                            <li>✅ Server is listening on http://localhost:8080</li>
+                            <li>✅ No firewall blocking the connection</li>
+                            <li>✅ Database/Airtable connection is working</li>
+                        </ul>
+                        <button onclick="location.reload()" style="
+                            background: #dc3545;
+                            color: white;
+                            border: none;
+                            padding: 10px 20px;
+                            border-radius: 4px;
+                            cursor: pointer;
+                        ">🔄 Reload Page</button>
+                    </div>
+                `;
+            });
+        }
+
+        // Progress Modal Functions
+        function showProgressModal(title) {
+            document.getElementById('progressTitle').textContent = title;
+            document.getElementById('progressModal').style.display = 'block';
+            document.getElementById('progressFill').style.width = '0%';
+            document.getElementById('progressText').textContent = 'Preparing...';
+            document.getElementById('progressStats').textContent = '';
+            batchOperationCancelled = false;
+        }
+
+        function updateProgress(current, total, currentAction, stats = '') {
+            const percentage = Math.round((current / total) * 100);
+            document.getElementById('progressFill').style.width = percentage + '%';
+            document.getElementById('progressText').textContent = currentAction;
+            document.getElementById('progressStats').textContent = `${current}/${total} (${percentage}%) ${stats}`;
+        }
+
+        function hideProgressModal() {
+            document.getElementById('progressModal').style.display = 'none';
+            currentBatchOperation = null;
+        }
+
+        function cancelBatchOperation() {
+            batchOperationCancelled = true;
+            if (currentBatchOperation) {
+                clearTimeout(currentBatchOperation);
+            }
+            hideProgressModal();
+        }
+
+        // Settings Management
+        function openSettings() {
+            loadCurrentSettings();
+            document.getElementById('settingsModal').style.display = 'block';
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsModal').style.display = 'none';
+            clearSettingsMessage();
+        }
+
+        function showSettingsMessage(message, isError = false) {
+            const messageDiv = document.getElementById('settingsMessage');
+            messageDiv.innerHTML = `<div class="message ${isError ? 'error' : 'success'}">${message}</div>`;
+            setTimeout(() => clearSettingsMessage(), 5000);
+        }
+
+        function clearSettingsMessage() {
+            document.getElementById('settingsMessage').innerHTML = '';
+        }
+
+        function loadCurrentSettings() {
+            fetch('/api/config')
+                .then(response => response.json())
+                .then(config => {
+                    currentConfig = config;
+                    populateSettingsForm(config);
+                })
+                .catch(error => {
+                    console.error('Error loading settings:', error);
+                    showSettingsMessage('Error loading current settings', true);
+                });
+        }
+
+        function populateSettingsForm(config) {
+            const delays = config.delays || {};
+            const limits = config.limits || {};
+
+            // Delay settings
+            const betweenFollows = delays.between_follows || [8, 20];
+            document.getElementById('betweenFollowsMin').value = betweenFollows[0];
+            document.getElementById('betweenFollowsMax').value = betweenFollows[1];
+
+            const preAction = delays.pre_action_delay || [2, 8];
+            document.getElementById('preActionMin').value = preAction[0];
+            document.getElementById('preActionMax').value = preAction[1];
+
+            const pageLoad = delays.page_load_wait || [0.5, 2];
+            document.getElementById('pageLoadMin').value = pageLoad[0];
+            document.getElementById('pageLoadMax').value = pageLoad[1];
+
+            document.getElementById('followCheckTimeout').value = delays.follow_check_timeout || 8;
+            document.getElementById('profileStartDelay').value = delays.profile_start_delay || 3;
+
+            // Break settings
+            const breakInterval = delays.extended_break_interval || [5, 10];
+            document.getElementById('breakIntervalMin').value = breakInterval[0];
+            document.getElementById('breakIntervalMax').value = breakInterval[1];
+
+            const breakDuration = delays.extended_break_duration || [60, 120];
+            document.getElementById('breakDurationMin').value = breakDuration[0];
+            document.getElementById('breakDurationMax').value = breakDuration[1];
+
+            document.getElementById('veryLongBreakChance').value = delays.very_long_break_chance || 0.03;
+
+            const veryLongBreak = delays.very_long_break_duration || [300, 600];
+            document.getElementById('veryLongBreakMin').value = veryLongBreak[0];
+            document.getElementById('veryLongBreakMax').value = veryLongBreak[1];
+
+            const hourlyReset = delays.hourly_reset_break || [600, 1200];
+            document.getElementById('hourlyResetMin').value = hourlyReset[0];
+            document.getElementById('hourlyResetMax').value = hourlyReset[1];
+
+            // Limit settings
+            document.getElementById('maxFollowsPerHour').value = limits.max_follows_per_hour || 35;
+
+            const maxFollowsProfile = limits.max_follows_per_profile || [40, 45];
+            document.getElementById('maxFollowsProfileMin').value = maxFollowsProfile[0];
+            document.getElementById('maxFollowsProfileMax').value = maxFollowsProfile[1];
+        }
+
+        function saveSettings() {
+            try {
+                const newConfig = {
+                    delays: {
+                        between_follows: [
+                            parseFloat(document.getElementById('betweenFollowsMin').value),
+                            parseFloat(document.getElementById('betweenFollowsMax').value)
+                        ],
+                        pre_action_delay: [
+                            parseFloat(document.getElementById('preActionMin').value),
+                            parseFloat(document.getElementById('preActionMax').value)
+                        ],
+                        page_load_wait: [
+                            parseFloat(document.getElementById('pageLoadMin').value),
+                            parseFloat(document.getElementById('pageLoadMax').value)
+                        ],
+                        follow_check_timeout: parseFloat(document.getElementById('followCheckTimeout').value),
+                        extended_break_interval: [
+                            parseInt(document.getElementById('breakIntervalMin').value),
+                            parseInt(document.getElementById('breakIntervalMax').value)
+                        ],
+                        extended_break_duration: [
+                            parseInt(document.getElementById('breakDurationMin').value),
+                            parseInt(document.getElementById('breakDurationMax').value)
+                        ],
+                        very_long_break_chance: parseFloat(document.getElementById('veryLongBreakChance').value),
+                        very_long_break_duration: [
+                            parseInt(document.getElementById('veryLongBreakMin').value),
+                            parseInt(document.getElementById('veryLongBreakMax').value)
+                        ],
+                        profile_start_delay: parseFloat(document.getElementById('profileStartDelay').value),
+                        hourly_reset_break: [
+                            parseInt(document.getElementById('hourlyResetMin').value),
+                            parseInt(document.getElementById('hourlyResetMax').value)
+                        ]
+                    },
+                    limits: {
+                        max_follows_per_hour: parseInt(document.getElementById('maxFollowsPerHour').value),
+                        max_follows_per_profile: [
+                            parseInt(document.getElementById('maxFollowsProfileMin').value),
+                            parseInt(document.getElementById('maxFollowsProfileMax').value)
+                        ]
+                    }
+                };
+
+                // Validate settings
+                if (!validateSettings(newConfig)) {
+                    return;
+                }
+
+                fetch('/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(newConfig)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showSettingsMessage('✅ Settings saved successfully! Changes will apply to new profile sessions.');
+                        currentConfig = newConfig;
+                    } else {
+                        showSettingsMessage('❌ Error saving settings: ' + (data.error || 'Unknown error'), true);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error saving settings:', error);
+                    showSettingsMessage('❌ Error saving settings: ' + error.message, true);
+                });
+
+            } catch (error) {
+                console.error('Error preparing settings:', error);
+                showSettingsMessage('❌ Error in settings format: ' + error.message, true);
+            }
+        }
+
+        function validateSettings(config) {
+            const delays = config.delays;
+            const limits = config.limits;
+
+            // Validate range pairs (min should be <= max)
+            const rangePairs = [
+                ['Between Follows', delays.between_follows],
+                ['Pre-Action Delay', delays.pre_action_delay],
+                ['Page Load Wait', delays.page_load_wait],
+                ['Extended Break Interval', delays.extended_break_interval],
+                ['Extended Break Duration', delays.extended_break_duration],
+                ['Very Long Break Duration', delays.very_long_break_duration],
+                ['Hourly Reset Break', delays.hourly_reset_break],
+                ['Max Follows Per Profile', limits.max_follows_per_profile]
+            ];
+
+            for (let [name, range] of rangePairs) {
+                if (range[0] > range[1]) {
+                    showSettingsMessage(`❌ ${name}: Minimum value cannot be greater than maximum value`, true);
+                    return false;
+                }
+                if (range[0] <= 0 || range[1] <= 0) {
+                    showSettingsMessage(`❌ ${name}: Values must be greater than 0`, true);
+                    return false;
+                }
+            }
+
+            // Validate single values
+            if (delays.follow_check_timeout <= 0) {
+                showSettingsMessage('❌ Follow Check Timeout must be greater than 0', true);
+                return false;
+            }
+
+            if (delays.profile_start_delay < 0) {
+                showSettingsMessage('❌ Profile Start Delay cannot be negative', true);
+                return false;
+            }
+
+            if (delays.very_long_break_chance < 0 || delays.very_long_break_chance > 1) {
+                showSettingsMessage('❌ Very Long Break Chance must be between 0 and 1', true);
+                return false;
+            }
+
+            if (limits.max_follows_per_hour <= 0) {
+                showSettingsMessage('❌ Max Follows Per Hour must be greater than 0', true);
+                return false;
+            }
+
+            return true;
+        }
+
+        function resetToDefaults() {
+            if (confirm('Reset all settings to default values? This will overwrite your current settings.')) {
+                const defaultConfig = {
+                    delays: {
+                        between_follows: [8, 20],
+                        pre_action_delay: [2, 8],
+                        page_load_wait: [0.5, 2],
+                        follow_check_timeout: 8,
+                        extended_break_interval: [5, 10],
+                        extended_break_duration: [60, 120],
+                        very_long_break_chance: 0.03,
+                        very_long_break_duration: [300, 600],
+                        profile_start_delay: 3,
+                        hourly_reset_break: [600, 1200]
+                    },
+                    limits: {
+                        max_follows_per_hour: 35,
+                        max_follows_per_profile: [40, 45]
+                    }
+                };
+
+                populateSettingsForm(defaultConfig);
+                showSettingsMessage('🔄 Settings reset to defaults. Click "Save Settings" to apply.');
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const settingsModal = document.getElementById('settingsModal');
+
+            if (event.target === settingsModal) {
+                closeSettings();
+            }
+
+            // Close any open filter dropdown if clicking outside
+            if (!event.target.matches('.filter-button')) {
+                document.querySelectorAll('.filter-dropdown-content').forEach(dropdown => {
+                    dropdown.classList.remove('show');
+                });
+            }
+        }
+
+        // Filter Management Functions
+        function toggleFilterDropdown(filterType) {
+            const dropdown = document.getElementById(filterType + 'Dropdown');
+            // Close other dropdowns
+            document.querySelectorAll('.filter-dropdown-content').forEach(d => {
+                if (d !== dropdown) d.classList.remove('show');
+            });
+            dropdown.classList.toggle('show');
+        }
+
+        function selectFilter(filterType, filterValue, filterName) {
+            if (filterType === 'vps') {
+                currentVps = filterValue;
+                document.getElementById('currentVps').textContent = filterName;
+                document.getElementById('vpsIndicator').textContent = filterValue === 'all' ? 'ALL' : filterValue;
+            } else if (filterType === 'phase') {
+                currentPhase = filterValue;
+                document.getElementById('currentPhase').textContent = filterName;
+                document.getElementById('phaseIndicator').textContent = filterValue === 'all' ? 'ALL' : filterValue;
+            } else if (filterType === 'batch') {
+                currentBatch = filterValue;
+                document.getElementById('currentBatch').textContent = filterName;
+                document.getElementById('batchIndicator').textContent = filterValue === 'all' ? 'ALL' : filterValue;
+            }
+
+            currentPage = 1;
+            selectedProfiles.clear();
+            lastSelectedProfile = null;
+
+            // Update dropdown selection
+            const dropdown = document.getElementById(filterType + 'Dropdown');
+            dropdown.querySelectorAll('.filter-option').forEach(option => option.classList.remove('selected'));
+            event.target.classList.add('selected');
+
+            // Close dropdown
+            dropdown.classList.remove('show');
+
+            // Reload profiles
+            loadProfiles();
+        }
+
+        function updateFilterDropdowns(data) {
+            // Update VPS dropdown
+            updateDropdownOptions('vps', data.vps_options || [], currentVps);
+
+            // Update Phase dropdown
+            updateDropdownOptions('phase', data.phase_options || [], currentPhase);
+
+            // Update Batch dropdown
+            updateDropdownOptions('batch', data.batch_options || [], currentBatch);
+        }
+
+        function updateDropdownOptions(filterType, optionsList, currentValue) {
+            const dropdown = document.getElementById(filterType + 'Dropdown');
+
+            // Clear existing options except "All"
+            const allOption = dropdown.querySelector('.filter-option');
+            dropdown.innerHTML = '';
+            dropdown.appendChild(allOption);
+
+            // Add dynamic options
+            optionsList.forEach(option => {
+                const optionElement = document.createElement('a');
+                optionElement.className = 'filter-option';
+                optionElement.textContent = option;
+                optionElement.onclick = () => selectFilter(filterType, option, option);
+                if (option === currentValue) {
+                    optionElement.classList.add('selected');
+                    allOption.classList.remove('selected');
+                }
+                dropdown.appendChild(optionElement);
+            });
+        }
+
+        function setFilter(filter) {
+            currentFilter = filter;
+            currentPage = 1;
+            selectedProfiles.clear();
+            lastSelectedProfile = null;
+
+            document.querySelectorAll('.filter-tab').forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Show/hide Test Selected button based on filter
+            const testSelectedBtn = document.getElementById('testSelectedBtn');
+            if (filter === 'blocked' || filter === 'suspended') {
+                testSelectedBtn.style.display = 'inline-block';
+            } else {
+                testSelectedBtn.style.display = 'none';
+            }
+
+            loadProfiles();
+        }
+
+        function createPaginationControls() {
+            const paginationHTML = `
+                <button onclick="changePage(1)" ${currentPage === 1 ? 'disabled' : ''}>First</button>
+                <button onclick="changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>Previous</button>
+                <div class="page-navigator">
+                    <span class="nav-arrow ${currentPage === 1 ? 'disabled' : ''}" onclick="navigatePage(-1)">◀</span>
+                    <input type="number" class="page-input" value="${currentPage}" min="1" max="${totalPages}"
+                           onkeypress="handlePageInputKeypress(event)" onblur="handlePageInputChange(event)">
+                    <span>/</span>
+                    <span>${totalPages}</span>
+                    <span class="nav-arrow ${currentPage === totalPages ? 'disabled' : ''}" onclick="navigatePage(1)">▶</span>
+                </div>
+                <button onclick="changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>Next</button>
+                <button onclick="changePage(${totalPages})" ${currentPage === totalPages ? 'disabled' : ''}>Last</button>
+            `;
+
+            document.getElementById('paginationTop').innerHTML = paginationHTML;
+            document.getElementById('paginationBottom').innerHTML = paginationHTML;
+        }
+
+        function updateRefreshIndicator(updating) {
+            const indicator = document.getElementById('refreshIndicator');
+            if (updating) {
+                indicator.textContent = 'Updating...';
+                indicator.classList.add('updating');
+            } else {
+                indicator.textContent = 'Auto-updating...';
+                indicator.classList.remove('updating');
+            }
+        }
+
+        function loadProfiles() {
+            // For auto-refresh, use a simpler approach
+            console.log('=== loadProfiles called ===');
+            console.log('isUpdating:', isUpdating);
+            console.log('currentPage:', currentPage);
+            console.log('perPage:', perPage);
+
+            // Don't start new request if one is already running
+            if (isUpdating) {
+                console.log('Already updating, skipping auto-refresh');
+                return;
+            }
+
+            // Use direct fetch for auto-refresh to avoid conflicts
+            console.log('Calling loadProfilesSimple...');
+            loadProfilesSimple();
+        }
+
+        function loadProfilesSimple() {
+            console.log('=== loadProfilesSimple START ===');
+            if (isUpdating) {
+                console.log('Already updating, returning');
+                return;
+            }
+
+            isUpdating = true;
+
+            const url = `/api/status?page=${currentPage}&per_page=${perPage}&filter=${currentFilter}&vps=${currentVps}&phase=${currentPhase}&batch=${currentBatch}`;
+            console.log('Fetching URL:', url);
+
+            fetch(url, {
+                cache: 'no-cache'
+            })
+                .then(response => {
+                    console.log('Response received:', response.status, response.statusText);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Data received:', data);
+                    console.log('Number of profiles:', Object.keys(data.profiles || {}).length);
+                    
+                    updateStatsOptimized(data);
+                    allProfiles = data.profiles || {};
+                    displayProfilesOptimized(allProfiles);
+                    // Pagination removed - updatePaginationOptimized(data.pagination || {});
+                    updateFilterDropdownsOptimized(data);
+
+                    updateRefreshIndicator(false);
+                    isUpdating = false;
+
+                    const statusEl = document.getElementById('connectionStatus');
+                    if (statusEl) {
+                        statusEl.textContent = 'Connected';
+                        statusEl.style.color = '';
+                    } else {
+                        console.error('connectionStatus element not found');
+                    }
+                    console.log('=== loadProfilesSimple SUCCESS ===');
+                })
+                .catch(error => {
+                    console.error('=== loadProfilesSimple ERROR ===');
+                    console.error('Auto-refresh error:', error);
+                    console.error('Error stack:', error.stack);
+                    updateRefreshIndicator(false);
+                    isUpdating = false;
+                    // Don't show error UI for auto-refresh failures
+                });
+        }
+
+        // Optimized update functions
+        function updateStatsOptimized(data) {
+            // Batch DOM updates for better performance
+            const elements = {
+                totalProfiles: data.pagination.total_profiles,
+                activeProfiles: data.concurrent_info.active_profiles,
+                pendingProfiles: data.concurrent_info.pending_profiles,
+                remainingUsernames: data.remaining_usernames
+            };
+
+            // Update all at once
+            Object.keys(elements).forEach(id => {
+                const element = document.getElementById(id);
+                if (element && element.textContent !== elements[id].toString()) {
+                    element.textContent = elements[id];
+                }
+            });
+
+            document.getElementById('connectionStatus').textContent = 'Connected';
+        }
+
+        // Pagination removed - this function is no longer needed
+        function updatePaginationOptimized(pagination) {
+            return; // Do nothing
+            if (totalPages !== pagination.total_pages) {
+                totalPages = pagination.total_pages;
+                createPaginationControls();
+            }
+
+            const pageInfo = `Showing ${pagination.start_index} - ${pagination.end_index} of ${pagination.total_profiles} profiles`;
+            const pageInfoElement = document.getElementById('pageInfo');
+            if (pageInfoElement.textContent !== pageInfo) {
+                pageInfoElement.textContent = pageInfo;
+            }
+        }
+
+        function displayProfilesOptimized(profiles) {
+            const container = document.getElementById('profilesContainer');
+
+            console.log(`Displaying ${Object.keys(profiles).length} profiles for page ${currentPage}`);
+
+            if (Object.keys(profiles).length === 0) {
+                container.innerHTML = '<div class="loading">No profiles found for current filter on this page.</div>';
+                return;
+            }
+
+            // Store current profile IDs for range selection, sorted by profile number
+            currentProfileIds = Object.keys(profiles).sort((a, b) => {
+                const profileA = profiles[a];
+                const profileB = profiles[b];
+                const numA = parseInt(profileA.profile_number || '999999');
+                const numB = parseInt(profileB.profile_number || '999999');
+                return numA - numB;
+            });
+
+            console.log(`Profile IDs on page ${currentPage}:`, currentProfileIds.slice(0, 5), '...'); // Log first 5 IDs
+
+            // Build HTML string (faster than creating individual elements)
+            const profilesHTML = currentProfileIds
+                .map((pid, index) => {
+                    const profile = profiles[pid];
+                    const isSelected = selectedProfiles.has(pid);
+                    const vpsStatus = profile.vps_status || 'None';
+                    const phase = profile.phase || 'None';
+                    const batch = profile.batch || 'None';
+                    const profileNumber = index + 1;
+                    const isCooldown = profile.status.startsWith('Cooldown');
+                    return `
+                        <div class="profile-card ${isSelected ? 'selected' : ''}" id="profile-${pid}" data-number="${profileNumber}">
+                            ${!isCooldown ? `<div style="font-weight: bold; font-size: 18px; color: #333; margin-right: 10px; min-width: 40px; text-align: center;">${profileNumber}</div>` : ''}
+                            <input type="checkbox" class="profile-checkbox"
+                                   onclick="toggleProfileSelection('${pid}', event)"
+                                   ${isSelected ? 'checked' : ''}>
+                            <div class="profile-header">
+                                <div class="profile-id">${profile.adspower_name || profile.username || `Profile ${pid}`}</div>
+                                <div class="status ${profile.status.toLowerCase().replace(' ', '-')}">${profile.status}</div>
+                            </div>
+                            <div class="profile-info">
+                                <div><strong>User:</strong> ${profile.username} | <strong>Airtable:</strong> ${profile.airtable_status}</div>
+                                <div class="profile-badges">
+                                    <span class="badge vps-badge">VPS: ${vpsStatus}</span>
+                                    <span class="badge phase-badge">Phase: ${phase}</span>
+                                    <span class="badge batch-badge">Batch: ${batch}</span>
+                                </div>
+                            </div>
+                            <div class="profile-stats">
+                                <div class="stat-box">
+                                    <div class="stat-number">${profile.stats.last_run}</div>
+                                    <div class="stat-text">Last Run</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-number">${profile.stats.today}</div>
+                                    <div class="stat-text">Today</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-number">${profile.stats.total_all_time}</div>
+                                    <div class="stat-text">Total</div>
+                                </div>
+                            </div>
+                            <div class="profile-actions">
+                                ${profile.status === 'Running' || profile.status === 'Testing' || profile.status === 'Queueing' || profile.status === 'Pending' ?
+                                    `<button class="btn btn-stop" onclick="controlProfile('${pid}', 'stop')">Stop</button>` :
+                                    `<button class="btn btn-start" onclick="controlProfile('${pid}', 'start')">Start</button>`
+                                }
+                                ${profile.status === 'Blocked' || profile.status === 'Suspended' ?
+                                    `<button class="btn btn-test" onclick="controlProfile('${pid}', 'test')">Test</button>
+                                     <button class="btn btn-revive" onclick="controlProfile('${pid}', 'revive')">Revive</button>` : ''
+                                }
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+            // Update container with new profiles
+            const gridDiv = document.createElement('div');
+            gridDiv.className = 'profiles-grid';
+            gridDiv.innerHTML = profilesHTML;
+
+            container.innerHTML = '';
+            container.appendChild(gridDiv);
+
+            console.log(`Successfully displayed page ${currentPage} with profiles: ${currentProfileIds.join(', ')}`);
+        }
+
+        function updateFilterDropdownsOptimized(data) {
+            // Only update if options changed
+            const newVpsOptions = data.vps_options || [];
+            const newPhaseOptions = data.phase_options || [];
+            const newBatchOptions = data.batch_options || [];
+
+            if (JSON.stringify(vpsOptions) !== JSON.stringify(newVpsOptions)) {
+                vpsOptions = newVpsOptions;
+                updateDropdownOptions('vps', newVpsOptions, currentVps);
+            }
+
+            if (JSON.stringify(phaseOptions) !== JSON.stringify(newPhaseOptions)) {
+                phaseOptions = newPhaseOptions;
+                updateDropdownOptions('phase', newPhaseOptions, currentPhase);
+            }
+
+            if (JSON.stringify(batchOptions) !== JSON.stringify(newBatchOptions)) {
+                batchOptions = newBatchOptions;
+                updateDropdownOptions('batch', newBatchOptions, currentBatch);
+            }
+        }
+
+        function updateStats(data) {
+            document.getElementById('totalProfiles').textContent = data.pagination.total_profiles;
+            document.getElementById('activeProfiles').textContent = data.concurrent_info.active_profiles;
+            document.getElementById('pendingProfiles').textContent = data.concurrent_info.pending_profiles;
+            document.getElementById('remainingUsernames').textContent = data.remaining_usernames;
+            document.getElementById('connectionStatus').textContent = 'Connected';
+        }
+
+        function updatePagination(pagination) {
+            totalPages = pagination.total_pages;
+            createPaginationControls();
+
+            document.getElementById('pageInfo').textContent =
+                `Showing ${pagination.start_index} - ${pagination.end_index} of ${pagination.total_profiles} profiles`;
+        }
+
+        function displayProfiles(profiles) {
+            const container = document.getElementById('profilesContainer');
+
+            if (Object.keys(profiles).length === 0) {
+                container.innerHTML = '<div class="loading">No profiles found for current filter.</div>';
+                return;
+            }
+
+            // Store current profile IDs for range selection, sorted by profile number
+            currentProfileIds = Object.keys(profiles).sort((a, b) => {
+                const profileA = profiles[a];
+                const profileB = profiles[b];
+                const numA = parseInt(profileA.profile_number || '999999');
+                const numB = parseInt(profileB.profile_number || '999999');
+                return numA - numB;
+            });
+
+            const profilesHTML = currentProfileIds
+                .map((pid, index) => {
+                    const profile = profiles[pid];
+                    const isSelected = selectedProfiles.has(pid);
+                    const vpsStatus = profile.vps_status || 'None';
+                    const phase = profile.phase || 'None';
+                    const batch = profile.batch || 'None';
+                    const profileNumber = index + 1;
+                    const isCooldown = profile.status.startsWith('Cooldown');
+                    return `
+                        <div class="profile-card ${isSelected ? 'selected' : ''}" id="profile-${pid}" data-number="${profileNumber}">
+                            ${!isCooldown ? `<div style="font-weight: bold; font-size: 18px; color: #333; margin-right: 10px; min-width: 40px; text-align: center;">${profileNumber}</div>` : ''}
+                            <input type="checkbox" class="profile-checkbox"
+                                   onclick="toggleProfileSelection('${pid}', event)"
+                                   ${isSelected ? 'checked' : ''}>
+                            <div class="profile-header">
+                                <div class="profile-id">${profile.adspower_name || profile.username || `Profile ${pid}`}</div>
+                                <div class="status ${profile.status.toLowerCase().replace(' ', '-')}">${profile.status}</div>
+                            </div>
+                            <div class="profile-info">
+                                <strong>Username:</strong> ${profile.username}<br>
+                                <strong>Airtable:</strong> ${profile.airtable_status}
+                                <div class="profile-badges">
+                                    <span class="badge vps-badge">VPS: ${vpsStatus}</span>
+                                    <span class="badge phase-badge">Phase: ${phase}</span>
+                                    <span class="badge batch-badge">Batch: ${batch}</span>
+                                </div>
+                            </div>
+                            <div class="profile-stats">
+                                <div class="stat-box">
+                                    <div class="stat-number">${profile.stats.last_run}</div>
+                                    <div class="stat-text">Last Run</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-number">${profile.stats.today}</div>
+                                    <div class="stat-text">Today</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-number">${profile.stats.total_all_time}</div>
+                                    <div class="stat-text">Total</div>
+                                </div>
+                            </div>
+                            <div class="profile-actions">
+                                ${profile.status === 'Running' || profile.status === 'Testing' || profile.status === 'Queueing' || profile.status === 'Pending' ?
+                                    `<button class="btn btn-stop" onclick="controlProfile('${pid}', 'stop')">Stop</button>` :
+                                    `<button class="btn btn-start" onclick="controlProfile('${pid}', 'start')">Start</button>`
+                                }
+                                ${profile.status === 'Blocked' || profile.status === 'Suspended' ?
+                                    `<button class="btn btn-test" onclick="controlProfile('${pid}', 'test')">Test</button>
+                                     <button class="btn btn-revive" onclick="controlProfile('${pid}', 'revive')">Revive</button>` : ''
+                                }
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+            container.innerHTML = `<div class="profiles-grid">${profilesHTML}</div>`;
+        }
+
+        function toggleProfileSelection(pid, event) {
+            // Prevent the default checkbox behavior to control it manually
+            event.preventDefault();
+
+            const isShiftHeld = event && event.shiftKey;
+
+            console.log(`Clicked Profile ${pid}, Shift held: ${isShiftHeld}, Last selected: ${lastSelectedProfile}`);
+
+            // If Shift is held and we have a last selected profile, select range
+            if (isShiftHeld && lastSelectedProfile !== null) {
+                selectRangeAcrossPages(lastSelectedProfile, pid);
+            } else {
+                // Regular single selection
+                const checkbox = event.target;
+                if (selectedProfiles.has(pid)) {
+                    selectedProfiles.delete(pid);
+                    document.getElementById(`profile-${pid}`).classList.remove('selected');
+                    checkbox.checked = false;
+                } else {
+                    selectedProfiles.add(pid);
+                    document.getElementById(`profile-${pid}`).classList.add('selected');
+                    checkbox.checked = true;
+                }
+                lastSelectedProfile = pid;
+            }
+
+            console.log(`Selected profiles: ${Array.from(selectedProfiles).sort((a,b) => parseInt(a) - parseInt(b)).join(', ')}`);
+        }
+
+        function selectRangeAcrossPages(startPid, endPid) {
+            console.log(`Starting range selection from ${startPid} to ${endPid}`);
+
+            // Convert profile IDs to numbers for proper range calculation
+            const startNum = parseInt(startPid);
+            const endNum = parseInt(endPid);
+
+            // Determine the range (could be forwards or backwards)
+            const minNum = Math.min(startNum, endNum);
+            const maxNum = Math.max(startNum, endNum);
+
+            console.log(`Range: ${minNum} to ${maxNum}`);
+
+            // First, fetch all profiles to get the complete list
+            fetch(`/api/status?page=1&per_page=10000&filter=${currentFilter}&vps=${currentVps}&phase=${currentPhase}&batch=${currentBatch}`)
+                .then(response => response.json())
+                .then(data => {
+                    const allProfileIds = Object.keys(data.profiles).map(id => parseInt(id)).sort((a, b) => a - b);
+                    console.log(`Available profiles: ${allProfileIds.join(', ')}`);
+
+                    let selectedInRange = 0;
+
+                    // Select all profiles in the numerical range that exist
+                    for (let profileNum = minNum; profileNum <= maxNum; profileNum++) {
+                        if (allProfileIds.includes(profileNum)) {
+                            const profileId = profileNum.toString();
+                            selectedProfiles.add(profileId);
+                            selectedInRange++;
+
+                            // Update visual state if profile is on current page
+                            const profileElement = document.getElementById(`profile-${profileId}`);
+                            if (profileElement) {
+                                profileElement.classList.add('selected');
+                                const checkbox = profileElement.querySelector('.profile-checkbox');
+                                if (checkbox) checkbox.checked = true;
+                            }
+                        }
+                    }
+
+                    // Update last selected to the end of the range
+                    lastSelectedProfile = endPid;
+
+                    console.log(`Selected ${selectedInRange} profiles in range ${minNum}-${maxNum}`);
+
+                    // Show a notification
+                    alert(`✅ Range Selection Complete!\n\nSelected profiles: ${minNum} to ${maxNum}\n${selectedInRange} profiles selected in this range\n${selectedProfiles.size} profiles selected total`);
+                })
+                .catch(error => {
+                    console.error('Error fetching profiles for range selection:', error);
+                    alert('❌ Error: Could not fetch all profiles for range selection');
+                });
+        }
+
+        function startAllProfiles() {
+            const filterSummary = `VPS: ${currentVps === 'all' ? 'All VPS' : currentVps}\nPhase: ${currentPhase === 'all' ? 'All Phases' : currentPhase}\nBatch: ${currentBatch === 'all' ? 'All Batches' : currentBatch}\nStatus Filter: ${currentFilter}`;
+
+            if (confirm(`Start all profiles matching current filters?\n\n${filterSummary}\n\nThis will automatically start up to 40 profiles concurrently.`)) {
+                // Include all filters in the start all command
+                fetch(`/api/control?action=start_all&vps=${currentVps}&phase=${currentPhase}&batch=${currentBatch}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert(`✅ Start All command sent successfully!\n\nStarting ${data.count || 'all matching'} profiles with 3s delays.\nDashboard will continue updating normally.`);
+                            // Immediate refresh to show the changes
+                            loadProfiles();
+                        } else {
+                            alert('❌ Error: Failed to start all profiles. Please try again.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error starting all profiles:', error);
+                        alert('❌ Error: Could not send start all command. Please try again.');
+                    });
+            }
+        }
+
+        // TEST SELECTED FUNCTION FOR BLOCKED/SUSPENDED PROFILES
+        function testSelectedProfiles() {
+            if (selectedProfiles.size === 0) {
+                alert('Please select profiles to test');
+                return;
+            }
+
+            const filterType = currentFilter === 'blocked' ? 'blocked' : 'suspended';
+            const actionText = currentFilter === 'blocked' ? 'follow block status' : 'suspension status';
+
+            // Ask for delay for test operations
+            const message = `Test ${selectedProfiles.size} selected ${filterType} profiles?\n\n` +
+                `This will open each profile and test their ${actionText}.\n\n` +
+                `Enter delay between tests (seconds):\n` +
+                `• 5s = Fast\n` +
+                `• 8s = Recommended\n` +
+                `• 12s = Conservative`;
+
+            const delayChoice = prompt(message, "8");
+
+            if (!delayChoice || isNaN(delayChoice) || delayChoice < 3) {
+                if (delayChoice !== null) {
+                    alert('❌ Minimum delay is 3 seconds to prevent rate limiting');
+                }
+                return;
+            }
+
+            const delayMs = parseInt(delayChoice) * 1000;
+            const profilesArray = Array.from(selectedProfiles).sort((a, b) => {
+                const profileA = allProfiles[a];
+                const profileB = allProfiles[b];
+                if (!profileA || !profileB) return 0;
+                const numA = parseInt(profileA.profile_number || '999999');
+                const numB = parseInt(profileB.profile_number || '999999');
+                return numA - numB;
+            });
+            const totalTimeMinutes = (profilesArray.length * delayMs / 1000 / 60).toFixed(1);
+
+            // Test profiles in background
+            let completed = 0;
+            let succeeded = 0;
+            let failed = 0;
+            let statusChanged = 0;
+
+            // Background processing function
+            function testProfilesInBackground() {
+                profilesArray.forEach((pid, index) => {
+                    setTimeout(() => {
+                        // Use the test action which specifically tests blocked/suspended status
+                        fetch(`/api/control?action=test&profile=${pid}`)
+                            .then(response => response.json())
+                            .then(data => {
+                                completed++;
+                                if (data.success) {
+                                    succeeded++;
+                                    // Note: The backend will automatically update status if it changed
+                                } else {
+                                    failed++;
+                                }
+
+                                // Show completion notification when done
+                                if (completed === profilesArray.length) {
+                                    setTimeout(() => {
+                                        alert(`✅ Batch Test Completed!\n\n` +
+                                              `Total profiles tested: ${profilesArray.length}\n` +
+                                              `Successfully tested: ${succeeded}\n` +
+                                              `Failed: ${failed}\n` +
+                                              `Delay used: ${delayChoice}s between tests\n\n` +
+                                              `Check the dashboard - any profiles that are no longer ${filterType} will have updated status!`);
+                                        // Refresh to show any status changes
+                                        loadProfiles();
+                                    }, 1000);
+                                }
+                            })
+                            .catch(error => {
+                                console.error(`Error testing profile ${pid}:`, error);
+                                completed++;
+                                failed++;
+
+                                if (completed === profilesArray.length) {
+                                    setTimeout(() => {
+                                        alert(`⚠️ Batch Test Completed with Errors!\n\n` +
+                                              `Total profiles tested: ${profilesArray.length}\n` +
+                                              `Successfully tested: ${succeeded}\n` +
+                                              `Failed: ${failed}\n\n` +
+                                              `Some tests may have encountered errors.`);
+                                        loadProfiles();
+                                    }, 1000);
+                                }
+                            });
+                    }, index * delayMs);
+                });
+            }
+
+            // Start the background process
+            testProfilesInBackground();
+
+            // Show immediate confirmation
+            alert(`🔍 Testing ${profilesArray.length} ${filterType} profiles in the background!\n\n` +
+                  `⏱️ Delay: ${delayChoice}s between each test\n` +
+                  `📍 Total time: ~${totalTimeMinutes} minutes\n` +
+                  `📊 Dashboard will continue to work normally\n` +
+                  `✅ You'll get a completion notification when done\n\n` +
+                  `This will check if profiles are still ${filterType} and update their status accordingly.`);
+        }
+
+        // IMPROVED START SELECTED FUNCTION - BACKGROUND PROCESSING
+        function startSelectedProfiles() {
+            if (selectedProfiles.size === 0) {
+                alert('Please select profiles to start');
+                return;
+            }
+
+            // Enhanced delay selection with recommendations
+            const message = `Start ${selectedProfiles.size} selected profiles?\n\n` +
+                `⚠️ IMPORTANT: AdsPower has rate limits!\n\n` +
+                `Recommended delays to avoid "Too many requests" errors:\n` +
+                `• 5s = Fast (may cause errors with many profiles)\n` +
+                `• 8s = Recommended (good balance)\n` +
+                `• 12s = Conservative (safest for large batches)\n` +
+                `• 15s = Very safe (for 30+ profiles)\n\n` +
+                `Enter delay between starts (seconds):`;
+
+            const delayChoice = prompt(message, selectedProfiles.size > 20 ? "12" : "8");
+
+            if (!delayChoice || isNaN(delayChoice) || delayChoice < 3) {
+                if (delayChoice !== null) {
+                    alert('❌ Minimum delay is 3 seconds to prevent rate limiting');
+                }
+                return;
+            }
+
+            const delayMs = parseInt(delayChoice) * 1000;
+            const profilesArray = Array.from(selectedProfiles).sort((a, b) => {
+                const profileA = allProfiles[a];
+                const profileB = allProfiles[b];
+                if (!profileA || !profileB) return 0;
+                const numA = parseInt(profileA.profile_number || '999999');
+                const numB = parseInt(profileB.profile_number || '999999');
+                return numA - numB;
+            });
+            const totalTimeMinutes = (profilesArray.length * delayMs / 1000 / 60).toFixed(1);
+
+            // Start profiles in background
+            let completed = 0;
+            let succeeded = 0;
+            let failed = 0;
+
+            // Background processing function
+            function startProfilesInBackground() {
+                profilesArray.forEach((pid, index) => {
+                    setTimeout(() => {
+                        fetch(`/api/control?action=start&profile=${pid}`)
+                            .then(response => response.json())
+                            .then(data => {
+                                completed++;
+                                if (data.success) {
+                                    succeeded++;
+                                } else {
+                                    failed++;
+                                }
+
+                                // Show completion notification when done
+                                if (completed === profilesArray.length) {
+                                    setTimeout(() => {
+                                        alert(`✅ Batch Start Completed!\n\n` +
+                                              `Total profiles: ${profilesArray.length}\n` +
+                                              `Successfully started: ${succeeded}\n` +
+                                              `Failed: ${failed}\n` +
+                                              `Delay used: ${delayChoice}s between starts`);
+                                    }, 1000);
+                                }
+                            })
+                            .catch(error => {
+                                console.error(`Error starting profile ${pid}:`, error);
+                                completed++;
+                                failed++;
+
+                                if (completed === profilesArray.length) {
+                                    setTimeout(() => {
+                                        alert(`⚠️ Batch Start Completed with Errors!\n\n` +
+                                              `Total profiles: ${profilesArray.length}\n` +
+                                              `Successfully started: ${succeeded}\n` +
+                                              `Failed: ${failed}\n` +
+                                              `Some profiles may have rate limit errors.`);
+                                    }, 1000);
+                                }
+                            });
+                    }, index * delayMs);
+                });
+            }
+
+            // Start the background process
+            startProfilesInBackground();
+
+            // Show immediate confirmation
+            alert(`🚀 Starting ${profilesArray.length} profiles in the background!\n\n` +
+                  `⏱️ Delay: ${delayChoice}s between each start\n` +
+                  `📍 Total time: ~${totalTimeMinutes} minutes\n` +
+                  `📊 Dashboard will continue to work normally\n` +
+                  `✅ You'll get a completion notification when done`);
+        }
+
+        // IMPROVED STOP SELECTED FUNCTION - BACKGROUND PROCESSING
+        function stopSelectedProfiles() {
+            if (selectedProfiles.size === 0) {
+                alert('Please select profiles to stop');
+                return;
+            }
+
+            // Ask for delay for stop operations too
+            const message = `Stop ${selectedProfiles.size} selected profiles?\n\n` +
+                `Enter delay between stops (seconds):\n` +
+                `• 2s = Fast (recommended for stops)\n` +
+                `• 5s = Conservative\n` +
+                `• 8s = Very safe`;
+
+            const delayChoice = prompt(message, "2");
+
+            if (!delayChoice || isNaN(delayChoice) || delayChoice < 1) {
+                if (delayChoice !== null) {
+                    alert('❌ Minimum delay is 1 second');
+                }
+                return;
+            }
+
+            const delayMs = parseInt(delayChoice) * 1000;
+            const profilesArray = Array.from(selectedProfiles).sort((a, b) => {
+                const profileA = allProfiles[a];
+                const profileB = allProfiles[b];
+                if (!profileA || !profileB) return 0;
+                const numA = parseInt(profileA.profile_number || '999999');
+                const numB = parseInt(profileB.profile_number || '999999');
+                return numA - numB;
+            });
+            const totalTimeMinutes = (profilesArray.length * delayMs / 1000 / 60).toFixed(1);
+
+            // Stop profiles in background
+            let completed = 0;
+            let succeeded = 0;
+            let failed = 0;
+
+            // Background processing function
+            function stopProfilesInBackground() {
+                profilesArray.forEach((pid, index) => {
+                    setTimeout(() => {
+                        fetch(`/api/control?action=stop&profile=${pid}`)
+                            .then(response => response.json())
+                            .then(data => {
+                                completed++;
+                                if (data.success) {
+                                    succeeded++;
+                                } else {
+                                    failed++;
+                                }
+
+                                // Show completion notification when done
+                                if (completed === profilesArray.length) {
+                                    setTimeout(() => {
+                                        alert(`✅ Batch Stop Completed!\n\n` +
+                                              `Total profiles: ${profilesArray.length}\n` +
+                                              `Successfully stopped: ${succeeded}\n` +
+                                              `Failed: ${failed}\n` +
+                                              `Delay used: ${delayChoice}s between stops`);
+                                    }, 1000);
+                                }
+                            })
+                            .catch(error => {
+                                console.error(`Error stopping profile ${pid}:`, error);
+                                completed++;
+                                failed++;
+
+                                if (completed === profilesArray.length) {
+                                    setTimeout(() => {
+                                        alert(`⚠️ Batch Stop Completed with Errors!\n\n` +
+                                              `Total profiles: ${profilesArray.length}\n` +
+                                              `Successfully stopped: ${succeeded}\n` +
+                                              `Failed: ${failed}`);
+                                    }, 1000);
+                                }
+                            });
+                    }, index * delayMs);
+                });
+            }
+
+            // Start the background process
+            stopProfilesInBackground();
+
+            // Show immediate confirmation
+            alert(`🛑 Stopping ${profilesArray.length} profiles in the background!\n\n` +
+                  `⏱️ Delay: ${delayChoice}s between each stop\n` +
+                  `📍 Total time: ~${totalTimeMinutes} minutes\n` +
+                  `📊 Dashboard will continue to work normally\n` +
+                  `✅ You'll get a completion notification when done`);
+        }
+
+        function startRangeProfiles() {
+            const startNum = parseInt(document.getElementById('startRange').value);
+            const endNum = parseInt(document.getElementById('endRange').value);
+            
+            if (!startNum || !endNum) {
+                alert('Please enter both start and end range numbers');
+                return;
+            }
+            
+            if (startNum < 1 || endNum < 1) {
+                alert('Range numbers must be 1 or greater');
+                return;
+            }
+            
+            if (startNum > endNum) {
+                alert('Start number must be less than or equal to end number');
+                return;
+            }
+            
+            // Find profiles in the range based on their displayed number
+            const profilesInRange = [];
+            currentProfileIds.forEach((pid, index) => {
+                const profileNumber = index + 1;
+                if (profileNumber >= startNum && profileNumber <= endNum) {
+                    profilesInRange.push(pid);
+                }
+            });
+            
+            if (profilesInRange.length === 0) {
+                alert(`No profiles found in range ${startNum}-${endNum}`);
+                return;
+            }
+            
+            // Ask for delay
+            const message = `Start ${profilesInRange.length} profiles (${startNum}-${endNum})?\n\n` +
+                `⚠️ IMPORTANT: AdsPower has rate limits!\n\n` +
+                `Recommended delays:\n` +
+                `• 8s = Recommended\n` +
+                `• 12s = Conservative\n` +
+                `• 15s = Very safe\n\n` +
+                `Enter delay between starts (seconds):`;
+                
+            const delayChoice = prompt(message, profilesInRange.length > 20 ? "12" : "8");
+            
+            if (!delayChoice || isNaN(delayChoice) || delayChoice < 3) {
+                if (delayChoice !== null) {
+                    alert('❌ Minimum delay is 3 seconds');
+                }
+                return;
+            }
+            
+            const delayMs = parseInt(delayChoice) * 1000;
+            const totalTimeMinutes = (profilesInRange.length * delayMs / 1000 / 60).toFixed(1);
+            
+            // Start profiles in background
+            let completed = 0;
+            let succeeded = 0;
+            let failed = 0;
+            
+            // Background processing function
+            function startProfilesInBackground() {
+                profilesInRange.forEach((pid, index) => {
+                    setTimeout(() => {
+                        fetch(`/api/control?action=start&profile=${pid}`)
+                            .then(response => response.json())
+                            .then(data => {
+                                completed++;
+                                if (data.success) {
+                                    succeeded++;
+                                } else {
+                                    failed++;
+                                }
+                                
+                                // Show completion notification when done
+                                if (completed === profilesInRange.length) {
+                                    setTimeout(() => {
+                                        alert(`✅ Range Start Completed!\n\n` +
+                                              `Range: ${startNum}-${endNum}\n` +
+                                              `Total profiles: ${profilesInRange.length}\n` +
+                                              `Successfully started: ${succeeded}\n` +
+                                              `Failed: ${failed}`);
+                                    }, 1000);
+                                }
+                            })
+                            .catch(error => {
+                                console.error(`Error starting profile ${pid}:`, error);
+                                completed++;
+                                failed++;
+                                
+                                if (completed === profilesInRange.length) {
+                                    setTimeout(() => {
+                                        alert(`⚠️ Range Start Completed with Errors!\n\n` +
+                                              `Range: ${startNum}-${endNum}\n` +
+                                              `Total profiles: ${profilesInRange.length}\n` +
+                                              `Successfully started: ${succeeded}\n` +
+                                              `Failed: ${failed}`);
+                                    }, 1000);
+                                }
+                            });
+                    }, index * delayMs);
+                });
+            }
+            
+            // Start the background process
+            startProfilesInBackground();
+            
+            // Show immediate confirmation
+            alert(`🚀 Starting profiles ${startNum}-${endNum} in the background!\n\n` +
+                  `📊 Total profiles: ${profilesInRange.length}\n` +
+                  `⏱️ Delay: ${delayChoice}s between each start\n` +
+                  `📍 Total time: ~${totalTimeMinutes} minutes\n` +
+                  `✅ You'll get a completion notification when done`);
+        }
+
+        function controlProfile(pid, action) {
+            fetch(`/api/control?action=${action}&profile=${pid}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Immediate refresh for better responsiveness
+                        setTimeout(() => loadProfiles(), 500);
+                    } else {
+                        alert(`Failed to ${action} profile ${pid}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert(`Error performing ${action} on profile ${pid}`);
+                });
+        }
+
+        function navigatePage(direction) {
+            const newPage = currentPage + direction;
+            if (newPage >= 1 && newPage <= totalPages) {
+                console.log(`Navigate: ${currentPage} + ${direction} = ${newPage}`);
+                changePage(newPage);
+            } else {
+                console.log(`Cannot navigate to page ${newPage} (out of range 1-${totalPages})`);
+            }
+        }
+
+        function handlePageInputKeypress(event) {
+            if (event.key === 'Enter') {
+                const targetPage = parseInt(event.target.value);
+                if (targetPage && targetPage >= 1 && targetPage <= totalPages) {
+                    console.log(`Navigate via input: page ${targetPage}`);
+                    changePage(targetPage);
+                } else {
+                    event.target.value = currentPage; // Reset to current page if invalid
+                    alert(`Please enter a page number between 1 and ${totalPages}`);
+                }
+                event.target.blur(); // Remove focus after Enter
+            }
+        }
+
+        function handlePageInputChange(event) {
+            const targetPage = parseInt(event.target.value);
+            if (!targetPage || targetPage < 1 || targetPage > totalPages) {
+                event.target.value = currentPage; // Reset to current page if invalid
+            } else if (targetPage !== currentPage) {
+                console.log(`Navigate via input change: page ${targetPage}`);
+                changePage(targetPage);
+            }
+        }
+
+        // Update all page input fields to show the current page
+        function updatePageInputs() {
+            const pageInputs = document.querySelectorAll('.page-input');
+            pageInputs.forEach(input => {
+                input.value = currentPage;
+            });
+        }
+
+        // Keep original functions for compatibility with auto-refresh
+        function updateStats(data) {
+            updateStatsOptimized(data);
+        }
+
+        function displayProfiles(profiles) {
+            displayProfilesOptimized(profiles);
+        }
+
+        // Pagination removed
+        function updatePagination(pagination) {
+            return; // Do nothing
+        }
+
+        function updateFilterDropdowns(data) {
+            updateFilterDropdownsOptimized(data);
+        }
+
+        function handleLoadingError(error) {
+            console.error('Loading error:', error);
+            const container = document.getElementById('profilesContainer');
+            container.innerHTML = `
+                <div class="loading" style="color: red;">
+                    ❌ Failed to connect to backend server<br>
+                    <small>${error.message}</small><br>
+                    <button onclick="location.reload()">Retry</button>
+                </div>
+            `;
+        }
+
+        function testConnection() {
+            console.log('Testing connection to backend...');
+
+            // Try a simple fetch without timeout first
+            return fetch('/api/status?page=1&per_page=1', {
+                method: 'GET',
+                cache: 'no-cache'
+            })
+            .then(response => {
+                console.log('Connection test response:', response.status, response.statusText);
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                }
+                console.log('Backend connection successful');
+                return response.json();
+            })
+            .then(data => {
+                console.log('Test data received:', data);
+                return data;
+            })
+            .catch(error => {
+                console.error('Connection test failed:', error);
+                throw new Error(`Backend connection failed: ${error.message}`);
+            });
+        }
+
+        // Initialize dashboard when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('=== DASHBOARD INIT START ===');
+            console.log('Current URL:', window.location.href);
+            console.log('Dashboard initializing...');
+            
+            // Show what's happening
+            const container = document.getElementById('profilesContainer');
+            if (!container) {
+                console.error('FATAL: profilesContainer element not found!');
+                return;
+            }
+            
+            console.log('Container found, starting connection test...');
+
+            // Add connection test first
+            testConnection()
+                .then(() => {
+                    console.log('Connection test passed, loading profiles...');
+                    loadProfiles();
+                    // Start auto-refresh with longer interval to reduce server load
+                    autoRefreshInterval = setInterval(loadProfiles, 5000); // Increased from 3s to 5s
+                })
+                .catch(error => {
+                    console.error('Initial connection test failed:', error);
+                    console.error('Full error:', error.stack);
+                    handleLoadingError(error);
+                });
+
+            // Show initial refresh status
+            updateRefreshIndicator(false);
+            console.log('=== DASHBOARD INIT END ===');
+        });
+
+        function testConnection() {
+            console.log('Testing connection to backend...');
+
+            // Try a simple fetch without timeout first
+            return fetch('/api/status?page=1&per_page=1', {
+                method: 'GET',
+                cache: 'no-cache'
+            })
+            .then(response => {
+                console.log('Connection test response:', response.status, response.statusText);
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                }
+                console.log('Backend connection successful');
+                return response.json();
+            })
+            .then(data => {
+                console.log('Test data received:', data);
+                return data;
+            })
+            .catch(error => {
+                console.error('Connection test failed:', error);
+                throw new Error(`Backend connection failed: ${error.message}`);
+            });
+        }
+
+        // Optional: Preload adjacent pages for instant navigation
+        function preloadAdjacentPages() {
+            // This could preload next/previous pages in background
+            // Implementation would cache data for instant switching
+        }
+    </script>
+</body>
+</html>

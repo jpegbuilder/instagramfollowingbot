@@ -1,0 +1,42 @@
+{
+  "delays": {
+    "between_follows": [
+      5,
+      10
+    ],
+    "pre_action_delay": [
+      2,
+      5
+    ],
+    "page_load_wait": [
+      0.5,
+      2
+    ],
+    "follow_check_timeout": 5,
+    "extended_break_interval": [
+      8,
+      15
+    ],
+    "extended_break_duration": [
+      60,
+      120
+    ],
+    "very_long_break_chance": 0,
+    "very_long_break_duration": [
+      300,
+      500
+    ],
+    "profile_start_delay": 3,
+    "hourly_reset_break": [
+      600,
+      1200
+    ]
+  },
+  "limits": {
+    "max_follows_per_hour": 300,
+    "max_follows_per_profile": [
+      300,
+      300
+    ]
+  }
+}
