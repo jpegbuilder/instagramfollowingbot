@@ -786,18 +786,24 @@ class StatusManager:
                     profiles[pid_str]['status'] = 'Blocked'
                     profiles[pid_str]['stop_requested'] = True
                     profiles[pid_str]['airtable_status'] = 'Follow Block'
+                    
+                    # Get profile_number for Airtable update
+                    profile_number = profiles[pid_str].get('profile_number')
 
             # Write status asynchronously
             AsyncFileManager.write_status_async({pid_str: 'blocked'})
 
             logger.info(f"Profile {profile_id} marked as BLOCKED")
 
-            # Update Airtable asynchronously
-            airtable_executor.submit(
-                AirtableManager.update_profile_status,
-                profile_id,
-                'Follow Block'
-            )
+            # Update Airtable asynchronously (only if we have a profile_number)
+            if profile_number:
+                airtable_executor.submit(
+                    AirtableManager.update_profile_status,
+                    profile_number,
+                    'Follow Block'
+                )
+            else:
+                logger.warning(f"Profile {profile_id}: No profile_number found, skipping Airtable update")
 
         except Exception as e:
             logger.error(f"Error marking profile {profile_id} as blocked: {e}")
@@ -813,18 +819,24 @@ class StatusManager:
                 if pid_str in profiles:
                     profiles[pid_str]['status'] = 'Suspended'
                     profiles[pid_str]['airtable_status'] = 'Suspended'
+                    
+                    # Get profile_number for Airtable update
+                    profile_number = profiles[pid_str].get('profile_number')
 
             # Write status asynchronously
             AsyncFileManager.write_status_async({pid_str: 'suspended'})
 
             logger.info(f"Profile {profile_id} marked as SUSPENDED")
 
-            # Update Airtable asynchronously
-            airtable_executor.submit(
-                AirtableManager.update_profile_status,
-                profile_id,
-                'Suspended'
-            )
+            # Update Airtable asynchronously (only if we have a profile_number)
+            if profile_number:
+                airtable_executor.submit(
+                    AirtableManager.update_profile_status,
+                    profile_number,
+                    'Suspended'
+                )
+            else:
+                logger.warning(f"Profile {profile_id}: No profile_number found, skipping Airtable update")
 
         except Exception as e:
             logger.error(f"Error marking profile {profile_id} as suspended: {e}")
@@ -840,18 +852,24 @@ class StatusManager:
                 if pid_str in profiles:
                     profiles[pid_str]['status'] = 'Not Running'
                     profiles[pid_str]['airtable_status'] = 'Alive'
+                    
+                    # Get profile_number for Airtable update
+                    profile_number = profiles[pid_str].get('profile_number')
 
             # Write status asynchronously (None = delete)
             AsyncFileManager.write_status_async({pid_str: None})
 
             logger.info(f"Profile {profile_id} REVIVED")
 
-            # Update Airtable asynchronously
-            airtable_executor.submit(
-                AirtableManager.update_profile_status,
-                profile_id,
-                'Alive'
-            )
+            # Update Airtable asynchronously (only if we have a profile_number)
+            if profile_number:
+                airtable_executor.submit(
+                    AirtableManager.update_profile_status,
+                    profile_number,
+                    'Alive'
+                )
+            else:
+                logger.warning(f"Profile {profile_id}: No profile_number found, skipping Airtable update")
 
             return True
 
@@ -906,7 +924,7 @@ class AirtableManager:
 
                 if records:
                     record_id = records[0]['id']
-                    update_data = {'Status': status}
+                    update_data = {'Status': [status]}
                     result = table.update(record_id, update_data)
                     logger.info(f"✅ Updated profile {profile_number} status to '{status}' in Airtable")
                     return True
@@ -928,46 +946,30 @@ class AirtableManager:
         if not AIRTABLE_AVAILABLE:
             return False
 
-        try:
-            AirtableManager._rate_limit()
-
-            api = AirtableManager._get_api()
-            table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
-
-            records = table.all(formula=f"{{Profile}} = {profile_number}")
-
-            if records:
-                record_id = records[0]['id']
-                update_data = {}
-
-                if last_run is not None:
-                    update_data['Last run'] = last_run
-                if follows_today is not None:
-                    update_data['Follows today'] = follows_today
-                if total_follows is not None:
-                    update_data['Total Follows'] = total_follows
-
-                if update_data:
-                    result = table.update(record_id, update_data)
-                    logger.info(f"✅ Updated profile {profile_number} statistics in Airtable")
-                    return True
-                else:
-                    return True
-            else:
-                logger.warning(f"❌ Profile {profile_number} not found in Airtable")
-                return False
-
-        except Exception as e:
-            logger.error(f"❌ Error updating profile {profile_number} statistics: {e}")
-            return False
+        # Note: Statistics fields (Last run, Follows today, Total Follows) don't exist in Airtable schema
+        # This function is kept for compatibility but doesn't perform any updates
+        logger.info(f"Profile {profile_number}: Statistics update skipped (fields don't exist in Airtable schema)")
+        return True
 
     @staticmethod
     def update_profile_statistics_on_completion(profile_id):
         """Update statistics for a profile when it completes work"""
         try:
             stats = StatsManager.get_profile_stats(profile_id)
+            
+            # Get profile_number for Airtable update
+            pid_str = str(profile_id)
+            profile_number = None
+            with profiles_lock:
+                if pid_str in profiles:
+                    profile_number = profiles[pid_str].get('profile_number')
+            
+            if not profile_number:
+                logger.warning(f"Profile {profile_id}: No profile_number found, skipping Airtable statistics update")
+                return False
+                
             success = AirtableManager.update_profile_statistics(
-                profile_id,
+                profile_number,
                 last_run=stats['last_run'],
                 follows_today=stats['today'],
                 total_follows=stats['total_all_time']
