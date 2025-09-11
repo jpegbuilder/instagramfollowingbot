@@ -72,7 +72,7 @@ def update_airtable_status(profile_number, status):
 
         if records:
             record_id = records[0]['id']
-            update_data = {'Status': status}
+            update_data = {'Status': [status]}
             result = table.update(record_id, update_data)
             logger.info(f"Profile {profile_number}: Successfully updated Airtable status to '{status}'")
             return True
@@ -883,7 +883,7 @@ class InstagramFollowBot:
             for indicator in follow_block_indicators:
                 if indicator in page_source:
                     logger.error(f"Profile No.{self.profile_id}: Follow block detected via page content: '{indicator}'")
-                    update_airtable_status(self.profile_id, 'Follow block')
+                    update_airtable_status(self.profile_id, 'Follow Block')
                     return True
 
             # Check for follow block dialog/popup elements
@@ -900,7 +900,7 @@ class InstagramFollowBot:
                     element = self.driver.find_element(By.XPATH, selector)
                     if element:
                         logger.error(f"Profile No.{self.profile_id}: Follow block detected via page element")
-                        update_airtable_status(self.profile_id, 'Follow block')
+                        update_airtable_status(self.profile_id, 'Follow Block')
                         return True
                 except NoSuchElementException:
                     continue
@@ -1013,7 +1013,7 @@ class InstagramFollowBot:
                         logger.error(
                             f"Profile No.{self.profile_id}: 3 consecutive follow failures - likely FOLLOW BLOCKED! Stopping this profile.")
                         self.is_follow_blocked = True
-                        update_airtable_status(self.profile_id, 'Follow block')
+                        update_airtable_status(self.profile_id, 'Follow Block')
                         return False
 
                     return False

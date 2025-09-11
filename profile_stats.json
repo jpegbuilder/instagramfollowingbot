@@ -2384,5 +2384,75 @@
       "2025-07-23": 11
     },
     "total_all_time": 11
+  },
+  "k144inio": {
+    "last_run": 1,
+    "today": {
+      "2025-09-10": 1
+    },
+    "total_all_time": 1
+  },
+  "k144inj3": {
+    "last_run": 8,
+    "today": {
+      "2025-09-10": 35
+    },
+    "total_all_time": 35
+  },
+  "k144inja": {
+    "last_run": 1,
+    "today": {
+      "2025-09-10": 4
+    },
+    "total_all_time": 4
+  },
+  "k144injd": {
+    "last_run": 93,
+    "today": {
+      "2025-09-10": 143
+    },
+    "total_all_time": 143
+  },
+  "k144injj": {
+    "last_run": 0,
+    "today": {
+      "2025-09-10": 49
+    },
+    "total_all_time": 49
+  },
+  "k144injl": {
+    "last_run": 74,
+    "today": {
+      "2025-09-10": 99
+    },
+    "total_all_time": 99
+  },
+  "k144injm": {
+    "last_run": 13,
+    "today": {
+      "2025-09-10": 15
+    },
+    "total_all_time": 15
+  },
+  "k144injp": {
+    "last_run": 30,
+    "today": {
+      "2025-09-10": 51
+    },
+    "total_all_time": 51
+  },
+  "k144injr": {
+    "last_run": 46,
+    "today": {
+      "2025-09-10": 51
+    },
+    "total_all_time": 51
+  },
+  "k144injs": {
+    "last_run": 10,
+    "today": {
+      "2025-09-10": 10
+    },
+    "total_all_time": 10
   }
 }

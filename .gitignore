@@ -1,0 +1,41 @@
+# API Configuration (contains sensitive keys)
+api_config.py
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Logs
+*.log
+dashboard_output.log
+dashboard_test.log
+
+# Cache and temporary files
+dashboard_cache.pkl
+*.pkl
+.DS_Store
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Downloaded follower files
+assigned_followers/
+
+# Test files
+test_*
+*.test
+
+# Backup files
+*.bak
+*.backup
