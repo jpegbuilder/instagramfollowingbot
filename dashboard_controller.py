@@ -852,6 +852,7 @@ class StatusManager:
                 if pid_str in profiles:
                     profiles[pid_str]['status'] = 'Not Running'
                     profiles[pid_str]['airtable_status'] = 'Alive'
+                    profiles[pid_str]['stop_requested'] = False
                     
                     # Get profile_number for Airtable update
                     profile_number = profiles[pid_str].get('profile_number')
@@ -859,7 +860,7 @@ class StatusManager:
             # Write status asynchronously (None = delete)
             AsyncFileManager.write_status_async({pid_str: None})
 
-            logger.info(f"Profile {profile_id} REVIVED")
+            logger.info(f"Profile {profile_id} REVIVED - status: Not Running, airtable_status: Alive")
 
             # Update Airtable asynchronously (only if we have a profile_number)
             if profile_number:
@@ -1308,8 +1309,14 @@ class ProfileRunner:
             if key in profiles:
                 airtable_status = profiles[key].get('airtable_status', 'Alive')
         
+        # Convert airtable_status to string if it's a list (Airtable multi-select fields)
+        if isinstance(airtable_status, list):
+            airtable_status = airtable_status[0] if airtable_status else 'Alive'
+        
         was_blocked = persistent_status == 'blocked' or airtable_status == 'Follow Block'
         is_test_mode = max_follows == 1
+        
+        logger.info(f"Profile {pid} starting: was_blocked={was_blocked}, is_test_mode={is_test_mode}, persistent_status={persistent_status}, airtable_status={airtable_status}")
 
         # Update status
         with profiles_lock:
@@ -1479,14 +1486,19 @@ class ProfileRunner:
                     profiles[key]['status'] = 'Finished'
                 profiles[key]['bot'] = None
 
+            logger.info(f"Profile {pid} finished: is_test_mode={is_test_mode}, was_blocked={was_blocked}, bot_was_blocked={bot_was_blocked}, final_status={final_status}")
+
             # If this was a test mode and the profile was previously blocked but completed successfully
             # Check both the final status AND the bot's internal follow block flag
             if is_test_mode and was_blocked:
-                if not bot_was_blocked and final_status in ['Running', 'Finished', 'Testing']:
+                logger.info(f"Test mode for previously blocked profile {pid}: bot_was_blocked={bot_was_blocked}, final_status={final_status}")
+                if not bot_was_blocked and final_status in ['Running', 'Finished', 'Testing', 'Not Running']:
                     logger.info(f"Test successful for previously blocked profile {pid} - reviving profile")
                     StatusManager.revive_profile_status(pid)
                 else:
                     logger.info(f"Test confirmed profile {pid} is still blocked - keeping blocked status")
+            elif is_test_mode:
+                logger.info(f"Test mode for non-blocked profile {pid} - no revival needed")
 
             # Update Airtable
             if profiles[key]['status'] in ['Finished', 'Stopped', 'Blocked', 'Suspended']:

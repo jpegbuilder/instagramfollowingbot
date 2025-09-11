@@ -2386,14 +2386,15 @@
     "total_all_time": 11
   },
   "k144inio": {
-    "last_run": 1,
+    "last_run": 0,
     "today": {
-      "2025-09-10": 1
+      "2025-09-10": 1,
+      "2025-09-11": 15
     },
-    "total_all_time": 1
+    "total_all_time": 16
   },
   "k144inj3": {
-    "last_run": 8,
+    "last_run": 0,
     "today": {
       "2025-09-10": 35
     },
@@ -2454,5 +2455,43 @@
       "2025-09-10": 10
     },
     "total_all_time": 10
+  },
+  "k144init": {
+    "last_run": 0,
+    "today": {},
+    "total_all_time": 0
+  },
+  "k144iniq": {
+    "last_run": 0,
+    "today": {
+      "2025-09-11": 7
+    },
+    "total_all_time": 7
+  },
+  "k144inir": {
+    "last_run": 0,
+    "today": {
+      "2025-09-11": 16
+    },
+    "total_all_time": 16
+  },
+  "k144iniv": {
+    "last_run": 0,
+    "today": {
+      "2025-09-11": 18
+    },
+    "total_all_time": 18
+  },
+  "k144inj2": {
+    "last_run": 1,
+    "today": {
+      "2025-09-11": 17
+    },
+    "total_all_time": 17
+  },
+  "k144injx": {
+    "last_run": 0,
+    "today": {},
+    "total_all_time": 0
   }
 }
