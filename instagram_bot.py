@@ -553,16 +553,7 @@ class InstagramFollowBot:
                 self.is_follow_blocked = True
                 logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected after navigation - updating Airtable")
                 # Update local profile status for dashboard
-                try:
-                    from dashboard_controller import profiles, profiles_lock
-                    with profiles_lock:
-                        for pid, info in profiles.items():
-                            if info.get('profile_number') == str(self.profile_id):
-                                info['airtable_status'] = 'Follow Block'
-                                info['status'] = 'Blocked'
-                                break
-                except Exception as e:
-                    logger.debug(f"Profile No.{self.profile_id}: Could not update local profile status: {e}")
+                self._update_local_profile_status()
                 return False
 
             logger.info(f"Profile No.{self.profile_id}: Navigated to Instagram")
@@ -683,8 +674,8 @@ class InstagramFollowBot:
             # Wait for explicit success indicators or timeout
             while time.time() - start_time < max_wait_time:
                 try:
-                    # Check for follow restriction modal only every 3 seconds to avoid performance issues
-                    if (time.time() - start_time) % 3 < 0.5:  # Check roughly every 3 seconds
+                    # Check for follow restriction modal only every 5 seconds to avoid performance issues
+                    if (time.time() - start_time) % 5 < 0.5:  # Check roughly every 5 seconds
                         if self.check_for_follow_restriction_modal():
                             logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected during follow check for {username}")
                             self.is_follow_blocked = True
@@ -908,32 +899,22 @@ class InstagramFollowBot:
             logger.info(f"Profile No.{self.profile_id}: Checking for follow restriction modal...")
 
             # Wait a bit for modal to appear (it might be loaded dynamically)
-            time.sleep(0.2)  # Reduced from 0.5 to 0.2 seconds
+            time.sleep(0.2)  # Reduced to 0.2 seconds for faster detection
 
             # First try to find modal elements with WebDriverWait for better reliability
             try:
                 from selenium.webdriver.support.ui import WebDriverWait
                 from selenium.webdriver.support import expected_conditions as EC
                 
-                # Wait up to 1 second for modal to appear (reduced from 2)
+                # Wait up to 1 second for modal to appear (reduced for faster detection)
                 wait = WebDriverWait(self.driver, 1)
                 
-                # Try different modal selectors with explicit wait
+                # Try most common modal selectors first (optimized for speed)
                 modal_selectors = [
                     "//h3[contains(text(), 'Try Again Later')]",
-                    "//h2[contains(text(), 'Try Again Later')]",
-                    "//h1[contains(text(), 'Try Again Later')]",
-                    "//div[contains(text(), 'Try Again Later')]",
                     "//*[contains(text(), 'Try Again Later')]",
-                    "//*[contains(text(), 'We limit how often you can do certain things on Instagram')]",
-                    "//*[contains(text(), 'like following people, to protect our community')]",
                     "//button[contains(text(), 'OK')]",
-                    "//a[contains(text(), 'Report a problem')]",
-                    # More specific selectors for modal structure
-                    "//div[contains(@class, 'modal')]//h3[contains(text(), 'Try Again Later')]",
-                    "//div[contains(@class, 'popup')]//h3[contains(text(), 'Try Again Later')]",
-                    "//div[contains(@role, 'dialog')]//h3[contains(text(), 'Try Again Later')]",
-                    "//div[contains(@aria-modal, 'true')]//h3[contains(text(), 'Try Again Later')]"
+                    "//*[contains(text(), 'We limit how often you can do certain things on Instagram')]"
                 ]
                 
                 for selector in modal_selectors:
@@ -957,30 +938,23 @@ class InstagramFollowBot:
             except Exception as e:
                 logger.debug(f"Profile No.{self.profile_id}: WebDriverWait failed: {str(e)[:50]}")
 
-            # Fallback: Check page source for modal text
+            # Fallback: Check page source for modal text (optimized)
             page_source = self.driver.page_source.lower()
             modal_indicators = [
                 "try again later",
                 "we limit how often you can do certain things on instagram",
-                "like following people, to protect our community",
-                "let us know if you think we made a mistake",
-                "report a problem"
+                "like following people, to protect our community"
             ]
 
             # Check if we have any indicators
             found_indicators = 0
-            found_texts = []
             for indicator in modal_indicators:
                 if indicator in page_source:
                     found_indicators += 1
-                    found_texts.append(indicator)
-
-            logger.info(f"Profile No.{self.profile_id}: Found {found_indicators} modal indicators: {found_texts}")
 
             # If we find any indicator, it's likely the modal
             if found_indicators >= 1:
                 logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via page content (found {found_indicators} indicators)")
-                logger.error(f"Profile No.{self.profile_id}: Found texts: {found_texts}")
                 
                 # Save page source for debugging
                 try:
@@ -997,50 +971,17 @@ class InstagramFollowBot:
                 self._update_local_profile_status()
                 return True
 
-            # Additional check for modal elements without wait
-            modal_selectors = [
-                "//h3[contains(text(), 'Try Again Later')]",
-                "//h2[contains(text(), 'Try Again Later')]",
-                "//h1[contains(text(), 'Try Again Later')]",
-                "//div[contains(text(), 'Try Again Later')]",
-                "//span[contains(text(), 'Try Again Later')]",
-                "//*[contains(text(), 'We limit how often you can do certain things on Instagram')]",
-                "//*[contains(text(), 'like following people, to protect our community')]",
-                "//*[contains(text(), 'Let us know if you think we made a mistake')]",
-                "//button[contains(text(), 'OK')]",
-                "//a[contains(text(), 'Report a problem')]"
-            ]
-
-            for i, selector in enumerate(modal_selectors):
-                try:
-                    element = self.driver.find_element(By.XPATH, selector)
-                    if element and element.is_displayed():
-                        logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via selector {i+1}: {selector}")
-                        logger.error(f"Profile No.{self.profile_id}: Element text: {element.text[:200]}")
-                        self.is_follow_blocked = True
-                        logger.error(f"Profile No.{self.profile_id}: Setting is_follow_blocked = True")
-                        update_airtable_status(self.profile_id, 'Follow Block')
-                        # Update local profile status for dashboard
-                        self._update_local_profile_status()
-                        return True
-                except NoSuchElementException:
-                    continue
-                except Exception as e:
-                    logger.debug(f"Profile No.{self.profile_id}: Error with selector {i+1}: {str(e)[:50]}")
-
-            # Final check: look for any element containing "Try Again Later" text
+            # Quick final check for "Try Again Later" text
             try:
-                all_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Try Again Later')]")
-                for element in all_elements:
-                    if element and element.is_displayed():
-                        logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via final check - element: {element.tag_name}")
-                        logger.error(f"Profile No.{self.profile_id}: Element text: {element.text[:200]}")
-                        self.is_follow_blocked = True
-                        logger.error(f"Profile No.{self.profile_id}: Setting is_follow_blocked = True")
-                        update_airtable_status(self.profile_id, 'Follow Block')
-                        # Update local profile status for dashboard
-                        self._update_local_profile_status()
-                        return True
+                element = self.driver.find_element(By.XPATH, "//*[contains(text(), 'Try Again Later')]")
+                if element and element.is_displayed():
+                    logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via final check")
+                    self.is_follow_blocked = True
+                    update_airtable_status(self.profile_id, 'Follow Block')
+                    self._update_local_profile_status()
+                    return True
+            except NoSuchElementException:
+                pass
             except Exception as e:
                 logger.debug(f"Profile No.{self.profile_id}: Error in final check: {str(e)[:50]}")
 
@@ -1178,7 +1119,7 @@ class InstagramFollowBot:
                 logger.info(f"Profile No.{self.profile_id}: Clicked follow button for {username}")
 
                 # Check for follow restriction modal after clicking (optimized)
-                time.sleep(1.0)  # Wait for modal to appear
+                time.sleep(0.5)  # Reduced wait time
                 if self.check_for_follow_restriction_modal():
                     logger.error(f"Profile No.{self.profile_id}: Follow restriction modal appeared after clicking follow for {username}")
                     self.is_follow_blocked = True

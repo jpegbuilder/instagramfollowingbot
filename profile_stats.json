@@ -2436,7 +2436,7 @@
     "total_all_time": 15
   },
   "k144injp": {
-    "last_run": 30,
+    "last_run": 0,
     "today": {
       "2025-09-10": 51
     },
@@ -2450,7 +2450,7 @@
     "total_all_time": 51
   },
   "k144injs": {
-    "last_run": 10,
+    "last_run": 0,
     "today": {
       "2025-09-10": 10
     },
@@ -2471,9 +2471,9 @@
   "k144inir": {
     "last_run": 0,
     "today": {
-      "2025-09-11": 16
+      "2025-09-11": 17
     },
-    "total_all_time": 16
+    "total_all_time": 17
   },
   "k144iniv": {
     "last_run": 0,
