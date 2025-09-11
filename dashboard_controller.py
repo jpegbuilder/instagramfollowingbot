@@ -271,7 +271,7 @@ class DashboardCacheManager:
                     return
                 
                 # Sync with Airtable every 30 seconds
-                if current_time - dashboard_cache.get('last_airtable_sync', 0) > 30:
+                if current_time - dashboard_cache.get('last_airtable_sync', 0) > 60:
                     AirtableManager.sync_profiles_from_airtable()
                     dashboard_cache['last_airtable_sync'] = current_time
 
@@ -1687,22 +1687,40 @@ class ProfileRunner:
     @staticmethod
     def start_profile_internal(pid):
         """Internal function to start a profile"""
-        key = str(pid)
+        # First, try to find the profile by profile_number or adspower_serial
+        actual_profile_id = None
+        with profiles_lock:
+            # Try to find by profile_number first
+            for key, info in profiles.items():
+                if info.get('profile_number') == str(pid) or info.get('adspower_serial') == str(pid):
+                    actual_profile_id = key
+                    logger.info(f"Profile {pid} found in cache with key: {actual_profile_id}")
+                    break
+            
+            # If not found by profile_number, try by adspower_id
+            if not actual_profile_id and str(pid) in profiles:
+                actual_profile_id = str(pid)
+                logger.info(f"Profile {pid} found directly in cache")
+
+        if not actual_profile_id:
+            logger.error(f"Profile {pid} not found in profiles cache")
+            return False
+
+        key = actual_profile_id
 
         # Check if already running
         with profiles_lock:
             if key in profiles:
                 if profiles[key].get('thread') and profiles[key]['thread'].is_alive():
-                    logger.info(f"Profile {pid} is already running")
+                    logger.info(f"Profile {pid} (key: {key}) is already running")
                     return False
 
         # Check Airtable status has priority
-        key = str(pid)
         with profiles_lock:
             if key in profiles:
                 airtable_status = profiles[key].get('airtable_status', 'Alive')
                 if airtable_status == 'Follow Block' or airtable_status == 'Suspended':
-                    logger.info(f"Profile {pid} is {airtable_status} in Airtable")
+                    logger.info(f"Profile {pid} (key: {key}) is {airtable_status} in Airtable")
                     return False
 
         # Get follow limits
@@ -1726,16 +1744,16 @@ class ProfileRunner:
         # Start thread
         t = threading.Thread(
             target=ProfileRunner.profile_runner_wrapper,
-            args=(pid, max_follows),
+            args=(key, max_follows),  # Use the actual key
             daemon=True,
-            name=f"Profile-{pid}"
+            name=f"Profile-{key}"
         )
 
         with profiles_lock:
             profiles[key]['thread'] = t
 
         t.start()
-        logger.info(f"Profile {pid} started (max {max_follows} follows)")
+        logger.info(f"Profile {pid} (key: {key}) started (max {max_follows} follows)")
         return True
 
 
@@ -1758,7 +1776,26 @@ class ProfileController:
     @staticmethod
     def stop_profile(pid):
         """Stop a running profile"""
-        key = str(pid)
+        # First, try to find the profile by profile_number or adspower_serial
+        actual_profile_id = None
+        with profiles_lock:
+            # Try to find by profile_number first
+            for key, info in profiles.items():
+                if info.get('profile_number') == str(pid) or info.get('adspower_serial') == str(pid):
+                    actual_profile_id = key
+                    logger.info(f"Profile {pid} found in cache with key: {actual_profile_id}")
+                    break
+            
+            # If not found by profile_number, try by adspower_id
+            if not actual_profile_id and str(pid) in profiles:
+                actual_profile_id = str(pid)
+                logger.info(f"Profile {pid} found directly in cache")
+
+        if not actual_profile_id:
+            logger.error(f"Profile {pid} not found in profiles cache")
+            return False
+
+        key = actual_profile_id
 
         with profiles_lock:
             if key not in profiles:
@@ -1788,7 +1825,7 @@ class ProfileController:
         # Update statistics
         airtable_executor.submit(
             AirtableManager.update_profile_statistics_on_completion,
-            pid
+            key  # Use the actual key
         )
 
         return True
@@ -1802,20 +1839,39 @@ class ProfileController:
     @staticmethod
     def test_profile_internal(pid):
         """Internal function to test a profile with just 1 follow"""
-        key = str(pid)
+        # First, try to find the profile by profile_number or adspower_serial
+        actual_profile_id = None
+        with profiles_lock:
+            # Try to find by profile_number first
+            for key, info in profiles.items():
+                if info.get('profile_number') == str(pid) or info.get('adspower_serial') == str(pid):
+                    actual_profile_id = key
+                    logger.info(f"Profile {pid} found in cache with key: {actual_profile_id}")
+                    break
+            
+            # If not found by profile_number, try by adspower_id
+            if not actual_profile_id and str(pid) in profiles:
+                actual_profile_id = str(pid)
+                logger.info(f"Profile {pid} found directly in cache")
+        
+        if not actual_profile_id:
+            logger.error(f"Profile {pid} not found in profiles cache")
+            return False
+        
+        key = actual_profile_id
         
         # Check if already running
         with profiles_lock:
             if key in profiles:
                 if profiles[key].get('thread') and profiles[key]['thread'].is_alive():
-                    logger.info(f"Profile {pid} is already running")
+                    logger.info(f"Profile {pid} (key: {key}) is already running")
                     return False
         
         # For test mode, we allow testing of blocked/suspended profiles
         # to check if they're still blocked or have been unblocked
-        persistent_status = StatusManager.get_persistent_status(pid)
+        persistent_status = StatusManager.get_persistent_status(key)
         if persistent_status in ['blocked', 'suspended']:
-            logger.info(f"Testing {persistent_status} profile {pid}")
+            logger.info(f"Testing {persistent_status} profile {pid} (key: {key})")
         
         # Update profile info
         with profiles_lock:
@@ -1830,18 +1886,19 @@ class ProfileController:
             })
         
         # Start thread with max_follows=1 for testing
+        # Use the actual profile_id (key) for the thread
         t = threading.Thread(
             target=ProfileRunner.profile_runner_wrapper,
-            args=(pid, 1),  # Only 1 follow for testing
+            args=(key, 1),  # Only 1 follow for testing, use the actual key
             daemon=True,
-            name=f"Profile-{pid}-Test"
+            name=f"Profile-{key}-Test"
         )
         
         with profiles_lock:
             profiles[key]['thread'] = t
         
         t.start()
-        logger.info(f"Profile {pid} started in TEST mode (1 follow only)")
+        logger.info(f"Profile {pid} (key: {key}) started in TEST mode (1 follow only)")
         return True
 
 
