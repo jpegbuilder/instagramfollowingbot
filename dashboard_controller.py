@@ -269,6 +269,11 @@ class DashboardCacheManager:
                 # Only update if enough time has passed
                 if current_time - dashboard_cache['last_update'] < dashboard_cache['update_interval']:
                     return
+                
+                # Sync with Airtable every 30 seconds
+                if current_time - dashboard_cache.get('last_airtable_sync', 0) > 30:
+                    AirtableManager.sync_profiles_from_airtable()
+                    dashboard_cache['last_airtable_sync'] = current_time
 
                 # Take a quick snapshot of profiles - MANUALLY COPY ONLY SAFE DATA
                 with profiles_lock:
@@ -783,7 +788,7 @@ class StatusManager:
             pid_str = str(profile_id)
             profile_number = None
 
-            # Update in-memory - search by AdsPower ID
+            # Update in-memory - search by AdsPower ID first, then by other identifiers
             with profiles_lock:
                 if pid_str in profiles:
                     info = profiles[pid_str]
@@ -793,7 +798,20 @@ class StatusManager:
                     profile_number = info.get('profile_number')
                     logger.info(f"Profile {profile_id} found by AdsPower ID and marked as BLOCKED")
                 else:
-                    logger.warning(f"Profile {profile_id} not found in profiles cache")
+                    # Try to find by profile_number or adspower_serial
+                    found = False
+                    for key, info in profiles.items():
+                        if info.get('profile_number') == pid_str or info.get('adspower_serial') == pid_str:
+                            info['status'] = 'Blocked'
+                            info['stop_requested'] = True
+                            info['airtable_status'] = 'Follow Block'
+                            profile_number = info.get('profile_number')
+                            logger.info(f"Profile {profile_id} found by profile_number/adspower_serial and marked as BLOCKED")
+                            found = True
+                            break
+                    
+                    if not found:
+                        logger.warning(f"Profile {profile_id} not found in profiles cache")
 
             # Write status asynchronously
             if pid_str in profiles:
@@ -803,10 +821,17 @@ class StatusManager:
 
             # Update Airtable asynchronously (only if we have a profile_number)
             if profile_number:
+                # Update status to 'Follow Block'
                 airtable_executor.submit(
                     AirtableManager.update_profile_status,
                     profile_number,
                     'Follow Block'
+                )
+                # Update 'Reached Follow Limit' field with current datetime
+                airtable_executor.submit(
+                    AirtableManager.update_reached_follow_limit,
+                    profile_number,
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 )
             else:
                 logger.warning(f"Profile {profile_id}: No profile_number found, skipping Airtable update")
@@ -887,6 +912,61 @@ class StatusManager:
 
 class AirtableManager:
     """Manages Airtable operations"""
+    
+    @staticmethod
+    def sync_profiles_from_airtable():
+        """Sync profile statuses from Airtable to local cache"""
+        if not AIRTABLE_AVAILABLE:
+            logger.warning("Airtable not available for sync")
+            return False
+            
+        try:
+            api = AirtableManager._get_api()
+            table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+            
+            # Get all profiles from Airtable
+            records = table.all()
+            logger.info(f"Syncing {len(records)} profiles from Airtable...")
+            
+            updated_count = 0
+            with profiles_lock:
+                for record in records:
+                    # Find profile by profile_number
+                    profile_number = None
+                    for field_name in ['Profile', 'Profile Number', 'Profile ID', 'ID A']:
+                        if field_name in record['fields']:
+                            profile_number = str(record['fields'][field_name])
+                            break
+                    
+                    if not profile_number:
+                        continue
+                    
+                    # Find matching profile in cache
+                    found_profile = None
+                    for pid, info in profiles.items():
+                        if info.get('profile_number') == profile_number:
+                            found_profile = pid
+                            break
+                    
+                    if found_profile:
+                        # Update airtable_status from Airtable
+                        airtable_status = record['fields'].get('Status', 'Alive')
+                        if isinstance(airtable_status, list):
+                            airtable_status = airtable_status[0] if airtable_status else 'Alive'
+                        
+                        old_status = profiles[found_profile].get('airtable_status')
+                        profiles[found_profile]['airtable_status'] = airtable_status
+                        
+                        if old_status != airtable_status:
+                            logger.info(f"Profile {found_profile} ({profile_number}): Updated airtable_status from '{old_status}' to '{airtable_status}'")
+                            updated_count += 1
+            
+            logger.info(f"Sync completed: {updated_count} profiles updated from Airtable")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error syncing profiles from Airtable: {e}")
+            return False
 
     # Connection pooling
     _api_instance = None
@@ -941,6 +1021,45 @@ class AirtableManager:
 
             except Exception as e:
                 logger.error(f"❌ Error updating profile {profile_number} status: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    return False
+
+    @staticmethod
+    def update_reached_follow_limit(profile_number, date_blocked=None):
+        """Update 'Reached Follow Limit' field in Airtable with the date when bot was blocked"""
+        if not AIRTABLE_AVAILABLE:
+            return False
+
+        if date_blocked is None:
+            date_blocked = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        max_retries = 2
+        retry_delay = 1
+
+        for attempt in range(max_retries):
+            try:
+                AirtableManager._rate_limit()
+
+                api = AirtableManager._get_api()
+                table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+
+                records = table.all(formula=f"{{Profile}} = {profile_number}")
+
+                if records:
+                    record_id = records[0]['id']
+                    update_data = {'Reached Follow Limit': date_blocked}
+                    result = table.update(record_id, update_data)
+                    logger.info(f"✅ Updated profile {profile_number} 'Reached Follow Limit' to '{date_blocked}' in Airtable")
+                    return True
+                else:
+                    logger.warning(f"❌ Profile {profile_number} not found in Airtable for 'Reached Follow Limit' update")
+                    return False
+
+            except Exception as e:
+                logger.error(f"❌ Error updating profile {profile_number} 'Reached Follow Limit': {e}")
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
                     retry_delay *= 2
@@ -1477,7 +1596,13 @@ class ProfileRunner:
         except Exception as e:
             logger.error(f"Profile {pid} error: {e}")
             with profiles_lock:
-                profiles[key]['status'] = 'Error'
+                # Only set to Error if not already Blocked or Suspended
+                current_status = profiles[key].get('status', '')
+                if current_status not in ['Blocked', 'Suspended']:
+                    profiles[key]['status'] = 'Error'
+                    logger.info(f"Profile {pid}: Set status to Error due to exception")
+                else:
+                    logger.info(f"Profile {pid}: Keeping status as {current_status} despite exception")
         finally:
             # Cleanup
             bot.stop_profile()
@@ -1488,8 +1613,31 @@ class ProfileRunner:
             
             with profiles_lock:
                 final_status = profiles[key]['status']
-                if profiles[key]['status'] == 'Running':
+                
+                # If bot was blocked but status is not Blocked, update it
+                if bot_was_blocked and final_status != 'Blocked':
+                    profiles[key]['status'] = 'Blocked'
+                    profiles[key]['airtable_status'] = 'Follow Block'
+                    final_status = 'Blocked'
+                    logger.info(f"Profile {pid}: Updated status to Blocked because bot was blocked")
+                    
+                    # Also update Airtable with 'Reached Follow Limit' field
+                    profile_number = profiles[key].get('profile_number')
+                    if profile_number:
+                        airtable_executor.submit(
+                            AirtableManager.update_profile_status,
+                            profile_number,
+                            'Follow Block'
+                        )
+                        airtable_executor.submit(
+                            AirtableManager.update_reached_follow_limit,
+                            profile_number,
+                            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        )
+                        logger.info(f"Profile {pid}: Updated Airtable with Follow Block and Reached Follow Limit")
+                elif profiles[key]['status'] == 'Running':
                     profiles[key]['status'] = 'Finished'
+                    
                 profiles[key]['bot'] = None
 
             logger.info(f"Profile {pid} finished: is_test_mode={is_test_mode}, was_blocked={was_blocked}, bot_was_blocked={bot_was_blocked}, final_status={final_status}")

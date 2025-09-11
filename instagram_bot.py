@@ -73,6 +73,14 @@ def update_airtable_status(profile_number, status):
         if records:
             record_id = records[0]['id']
             update_data = {'Status': [status]}
+            
+            # If status is 'Follow Block', also update 'Reached Follow Limit' field
+            if status == 'Follow Block':
+                from datetime import datetime
+                current_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                update_data['Reached Follow Limit'] = current_datetime
+                logger.info(f"Profile {profile_number}: Also updating 'Reached Follow Limit' to '{current_datetime}'")
+            
             result = table.update(record_id, update_data)
             logger.info(f"Profile {profile_number}: Successfully updated Airtable status to '{status}'")
             return True
@@ -882,13 +890,37 @@ class InstagramFollowBot:
             
             # Update status directly in profiles cache (like "Running" does)
             with profiles_lock:
+                # Try to find profile by profile_id first
                 if pid_str in profiles:
                     profiles[pid_str]['status'] = 'Blocked'
                     profiles[pid_str]['stop_requested'] = True
                     profiles[pid_str]['airtable_status'] = 'Follow Block'
                     logger.info(f"Profile No.{self.profile_id}: Updated local profile status to Blocked directly")
                 else:
-                    logger.warning(f"Profile No.{self.profile_id}: Not found in profiles cache")
+                    # If not found by profile_id, try to find by profile_number
+                    found = False
+                    for key, info in profiles.items():
+                        if info.get('profile_number') == pid_str:
+                            profiles[key]['status'] = 'Blocked'
+                            profiles[key]['stop_requested'] = True
+                            profiles[key]['airtable_status'] = 'Follow Block'
+                            logger.info(f"Profile No.{self.profile_id}: Updated local profile status to Blocked by profile_number")
+                            found = True
+                            break
+                    
+                    if not found:
+                        # Try to find by adspower_serial as last resort
+                        for key, info in profiles.items():
+                            if info.get('adspower_serial') == pid_str:
+                                profiles[key]['status'] = 'Blocked'
+                                profiles[key]['stop_requested'] = True
+                                profiles[key]['airtable_status'] = 'Follow Block'
+                                logger.info(f"Profile No.{self.profile_id}: Updated local profile status to Blocked by adspower_serial")
+                                found = True
+                                break
+                    
+                    if not found:
+                        logger.warning(f"Profile No.{self.profile_id}: Not found in profiles cache by profile_id, profile_number, or adspower_serial")
             
             # Also call StatusManager for Airtable update
             from dashboard_controller import StatusManager
@@ -907,26 +939,57 @@ class InstagramFollowBot:
 
             logger.info(f"Profile No.{self.profile_id}: Checking for follow restriction modal...")
 
-            # First: Quick JavaScript check for modal (fastest method)
+            # First: Enhanced JavaScript check for modal (more comprehensive)
             try:
                 modal_detected = self.driver.execute_script("""
-                    // Look for Instagram modal structure
-                    const dialog = document.querySelector('div[role="dialog"]');
-                    if (dialog && dialog.innerText.includes('Try Again Later')) {
-                        return true;
+                    // Multiple detection strategies for Instagram modal
+                    const textVariations = [
+                        'Try Again Later',
+                        'try again later',
+                        'TRY AGAIN LATER',
+                        'Try again later',
+                        'Try Again later'
+                    ];
+                    
+                    // Strategy 1: Look for any element containing the text
+                    for (const text of textVariations) {
+                        const elements = document.querySelectorAll('*');
+                        for (const el of elements) {
+                            if (el.innerText && el.innerText.includes(text)) {
+                                // Check if it's in a modal context
+                                const modal = el.closest('[role="dialog"], [role="presentation"], ._a9-v, ._a9-y');
+                                if (modal) {
+                                    return {detected: true, method: 'modal_context', text: text, element: el.tagName};
+                                }
+                            }
+                        }
                     }
                     
-                    // Fallback: look for any h1 with "Try Again Later"
-                    const h1 = document.querySelector('h1');
-                    if (h1 && h1.innerText.includes('Try Again Later')) {
-                        return true;
+                    // Strategy 2: Look for h1, h2, h3 with the text
+                    for (const text of textVariations) {
+                        const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+                        for (const heading of headings) {
+                            if (heading.innerText && heading.innerText.includes(text)) {
+                                return {detected: true, method: 'heading', text: text, element: heading.tagName};
+                            }
+                        }
                     }
                     
-                    return false;
+                    // Strategy 3: Look for any visible text containing the phrase
+                    for (const text of textVariations) {
+                        const allElements = document.querySelectorAll('*');
+                        for (const el of allElements) {
+                            if (el.innerText && el.innerText.includes(text) && el.offsetParent !== null) {
+                                return {detected: true, method: 'visible_text', text: text, element: el.tagName};
+                            }
+                        }
+                    }
+                    
+                    return {detected: false};
                 """)
                 
-                if modal_detected:
-                    logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via JavaScript")
+                if modal_detected and modal_detected.get('detected'):
+                    logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via JavaScript - {modal_detected.get('method')} - {modal_detected.get('text')} in {modal_detected.get('element')}")
                     self.is_follow_blocked = True
                     update_airtable_status(self.profile_id, 'Follow Block')
                     self._update_local_profile_status()
@@ -935,7 +998,7 @@ class InstagramFollowBot:
                 logger.debug(f"Profile No.{self.profile_id}: JavaScript check failed: {str(e)[:50]}")
 
             # Wait a bit for modal to appear (it might be loaded dynamically)
-            time.sleep(0.2)  # Reduced to 0.2 seconds for faster detection
+            time.sleep(0.5)  # Increased to 0.5 seconds for better detection of dynamic content
 
             # First try to find modal elements with WebDriverWait for better reliability
             try:
@@ -945,25 +1008,36 @@ class InstagramFollowBot:
                 # Wait up to 3 seconds for modal to appear (increased for better detection)
                 wait = WebDriverWait(self.driver, 2)
                 
-                # Instagram modal selectors based on actual structure (optimized for speed)
+                # Enhanced Instagram modal selectors with multiple text variations
                 modal_selectors = [
-                    # Primary: Look for dialog role with h1 containing "Try Again Later"
-                    "//div[@role='dialog']//h1[contains(text(), 'Try Again Later')]",
-                    "//div[@role='presentation']//h1[contains(text(), 'Try Again Later')]",
+                    # Primary: Look for dialog role with headings containing variations
+                    "//div[@role='dialog']//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//div[@role='dialog']//h2[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//div[@role='dialog']//h3[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//div[@role='presentation']//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//div[@role='presentation']//h2[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//div[@role='presentation']//h3[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
                     
-                    # Secondary: Look for any h1 with "Try Again Later" (most common)
-                    "//h1[contains(text(), 'Try Again Later')]",
+                    # Secondary: Look for any heading with variations
+                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//h2[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//h3[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
                     
-                    # Tertiary: Look for dialog structure with modal text
-                    "//div[@role='dialog'][contains(., 'Try Again Later')]",
-                    "//div[@role='presentation'][contains(., 'Try Again Later')]",
+                    # Tertiary: Look for dialog structure with modal text variations
+                    "//div[@role='dialog'][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//div[@role='presentation'][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    
+                    # Additional variations
+                    "//div[@role='dialog'][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'action blocked')]",
+                    "//div[@role='dialog'][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'temporarily blocked')]",
                     
                     # Fallback: Look for buttons that appear in this modal (only if in dialog)
                     "//div[@role='dialog']//button[contains(text(), 'OK')]",
                     "//div[@role='dialog']//button[contains(text(), 'Report a problem')]",
                     
-                    # Generic fallback - only if it contains the main text
-                    "//*[contains(text(), 'Try Again Later')]"
+                    # Generic fallback - only if it contains the main text variations
+                    "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'action blocked')]"
                 ]
                 
                 for selector in modal_selectors:
@@ -987,33 +1061,58 @@ class InstagramFollowBot:
             except Exception as e:
                 logger.debug(f"Profile No.{self.profile_id}: WebDriverWait failed: {str(e)[:50]}")
 
-            # Fallback: Check page source for modal text (optimized for Instagram structure)
+            # Enhanced fallback: Check page source for modal text with more variations
             page_source = self.driver.page_source.lower()
             modal_indicators = [
                 # Primary indicators from actual Instagram modal
                 "try again later",
+                "try again",
                 "we limit how often you can do certain things on instagram",
                 "like following people, to protect our community",
-                "report a problem"
+                "report a problem",
+                "action blocked",
+                "temporarily blocked",
+                "follow limit",
+                "too many actions",
+                "please wait",
+                "try again in a few minutes",
+                "action temporarily blocked",
+                "we've limited how often you can do certain things",
+                "to protect our community",
+                "you're temporarily blocked",
+                "temporary block"
             ]
 
-            # Check if we have the main indicator
-            found_indicators = 0
+            # Check for multiple variations of the main text
+            main_text_variations = [
+                "try again later",
+                "try again",
+                "action blocked",
+                "temporarily blocked"
+            ]
+
+            # Check if we have any main indicator
+            found_main_indicators = 0
+            for variation in main_text_variations:
+                if variation in page_source:
+                    found_main_indicators += 1
+
+            # Check for supporting indicators
+            found_supporting_indicators = 0
             for indicator in modal_indicators:
                 if indicator in page_source:
-                    found_indicators += 1
+                    found_supporting_indicators += 1
 
-            # Only if we find the main "try again later" text OR multiple indicators
-            if "try again later" in page_source or found_indicators >= 2:
-                logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via page content (found {found_indicators} indicators)")
+            # More flexible detection: main text OR multiple supporting indicators
+            if found_main_indicators > 0 or found_supporting_indicators >= 2:
+                logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via page content (main: {found_main_indicators}, supporting: {found_supporting_indicators})")
                 
-                # Save page source for debugging
+                # Debug: Log page source snippet instead of saving file
                 try:
-                    with open(f'modal_debug_{self.profile_id}.html', 'w', encoding='utf-8') as f:
-                        f.write(self.driver.page_source)
-                    logger.error(f"Profile No.{self.profile_id}: Saved page source to modal_debug_{self.profile_id}.html")
+                    page_snippet = self.driver.page_source[:500] + "..." if len(self.driver.page_source) > 500 else self.driver.page_source
+                    logger.error(f"Profile No.{self.profile_id}: Page source snippet: {page_snippet}")
                 except Exception as e:
-                    logger.error(f"Profile No.{self.profile_id}: Could not save page source: {e}")
+                    logger.error(f"Profile No.{self.profile_id}: Could not get page source snippet: {e}")
                 
                 self.is_follow_blocked = True
                 logger.error(f"Profile No.{self.profile_id}: Setting is_follow_blocked = True")
@@ -1022,20 +1121,38 @@ class InstagramFollowBot:
                 self._update_local_profile_status()
                 return True
 
-            # Quick final check using Instagram modal structure
+            # Additional wait for dynamic content and final comprehensive check
+            time.sleep(1.0)  # Additional wait for dynamic content
+            
+            # Final comprehensive check using multiple strategies
             try:
-                # Check for h1 with "Try Again Later" (most reliable)
-                element = self.driver.find_element(By.XPATH, "//h1[contains(text(), 'Try Again Later')]")
-                if element and element.is_displayed():
-                    logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via h1 final check")
-                    self.is_follow_blocked = True
-                    update_airtable_status(self.profile_id, 'Follow Block')
-                    self._update_local_profile_status()
-                    return True
-            except NoSuchElementException:
-                pass
+                # Strategy 1: Check for any heading with variations
+                heading_selectors = [
+                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//h2[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//h3[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
+                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'action blocked')]",
+                    "//h2[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'action blocked')]",
+                    "//h3[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'action blocked')]"
+                ]
+                
+                for selector in heading_selectors:
+                    try:
+                        element = self.driver.find_element(By.XPATH, selector)
+                        if element and element.is_displayed():
+                            logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via final heading check: {selector}")
+                            self.is_follow_blocked = True
+                            update_airtable_status(self.profile_id, 'Follow Block')
+                            self._update_local_profile_status()
+                            return True
+                    except NoSuchElementException:
+                        continue
+                    except Exception as e:
+                        logger.debug(f"Profile No.{self.profile_id}: Error in final heading check: {str(e)[:50]}")
+                        continue
+                        
             except Exception as e:
-                logger.debug(f"Profile No.{self.profile_id}: Error in h1 final check: {str(e)[:50]}")
+                logger.debug(f"Profile No.{self.profile_id}: Error in final comprehensive check: {str(e)[:50]}")
             
             # Additional final check for dialog structure
             try:
@@ -1189,6 +1306,8 @@ class InstagramFollowBot:
                 if self.check_for_follow_restriction_modal():
                     logger.error(f"Profile No.{self.profile_id}: Follow restriction modal appeared after clicking follow for {username}")
                     self.is_follow_blocked = True
+                    # Update local profile status immediately
+                    self._update_local_profile_status()
                     return False
                 
                 # Additional check after 2 seconds
@@ -1196,6 +1315,8 @@ class InstagramFollowBot:
                 if self.check_for_follow_restriction_modal():
                     logger.error(f"Profile No.{self.profile_id}: Follow restriction modal appeared 2 seconds after clicking follow for {username}")
                     self.is_follow_blocked = True
+                    # Update local profile status immediately
+                    self._update_local_profile_status()
                     return False
 
                 # ENHANCED: Check if follow action was successful with new public account follow block detection
@@ -1229,6 +1350,8 @@ class InstagramFollowBot:
                             f"Profile No.{self.profile_id}: 3 consecutive follow failures - likely FOLLOW BLOCKED! Stopping this profile.")
                         self.is_follow_blocked = True
                         update_airtable_status(self.profile_id, 'Follow Block')
+                        # Update local profile status immediately
+                        self._update_local_profile_status()
                         return False
 
                     return False
