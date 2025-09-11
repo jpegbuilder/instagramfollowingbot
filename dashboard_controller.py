@@ -778,20 +778,26 @@ class StatusManager:
     def mark_profile_blocked(profile_id):
         """Mark profile as permanently blocked"""
         try:
+            # profile_id is the AdsPower ID (like 'k144ink8')
+            # We need to find the profile_number (like '1091') from the profiles cache
             pid_str = str(profile_id)
+            profile_number = None
 
-            # Update in-memory
+            # Update in-memory - search by AdsPower ID
             with profiles_lock:
                 if pid_str in profiles:
-                    profiles[pid_str]['status'] = 'Blocked'
-                    profiles[pid_str]['stop_requested'] = True
-                    profiles[pid_str]['airtable_status'] = 'Follow Block'
-                    
-                    # Get profile_number for Airtable update
-                    profile_number = profiles[pid_str].get('profile_number')
+                    info = profiles[pid_str]
+                    info['status'] = 'Blocked'
+                    info['stop_requested'] = True
+                    info['airtable_status'] = 'Follow Block'
+                    profile_number = info.get('profile_number')
+                    logger.info(f"Profile {profile_id} found by AdsPower ID and marked as BLOCKED")
+                else:
+                    logger.warning(f"Profile {profile_id} not found in profiles cache")
 
             # Write status asynchronously
-            AsyncFileManager.write_status_async({pid_str: 'blocked'})
+            if pid_str in profiles:
+                AsyncFileManager.write_status_async({pid_str: 'blocked'})
 
             logger.info(f"Profile {profile_id} marked as BLOCKED")
 
