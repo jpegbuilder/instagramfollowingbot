@@ -1107,6 +1107,17 @@
                         throw new Error('Invalid data format received from server');
                     }
 
+                    // Check if profiles are still loading
+                    if (data.loading) {
+                        console.log('Profiles still loading:', data.message);
+                        document.getElementById('profilesContainer').innerHTML = 
+                            `<div class="loading">${data.message || 'Loading profiles from Airtable...'}</div>`;
+                        updateRefreshIndicator(false);
+                        isUpdating = false;
+                        requestAbortController = null;
+                        return;
+                    }
+
                     // Fast UI updates
                     updateStatsOptimized(data);
                     allProfiles = data.profiles || {};

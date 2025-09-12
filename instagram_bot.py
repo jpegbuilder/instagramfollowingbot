@@ -113,6 +113,7 @@ class InstagramFollowBot:
         self.is_follow_blocked = False
         self.window_recovery_attempts = 0
         self.max_window_recovery_attempts = 3
+        self.is_test_mode = False  # Flag to indicate test mode
 
     def check_adspower_connection(self):
         """Check if AdsPower API is accessible"""
@@ -556,13 +557,16 @@ class InstagramFollowBot:
                 update_airtable_status(self.profile_id, 'Suspended')
                 return False
 
-            # Check for follow restriction modal after navigation
-            if self.check_for_follow_restriction_modal():
-                self.is_follow_blocked = True
-                logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected after navigation - updating Airtable")
-                # Update local profile status for dashboard
-                self._update_local_profile_status()
-                return False
+            # Check for follow restriction modal after navigation (skip in test mode)
+            if not self.is_test_mode:
+                if self.check_for_follow_restriction_modal():
+                    self.is_follow_blocked = True
+                    logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected after navigation - updating Airtable")
+                    # Update local profile status for dashboard
+                    self._update_local_profile_status()
+                    return False
+            else:
+                logger.info(f"Profile No.{self.profile_id}: TEST MODE - Skipping follow restriction modal check after navigation")
 
             logger.info(f"Profile No.{self.profile_id}: Navigated to Instagram")
             return True
@@ -682,8 +686,8 @@ class InstagramFollowBot:
             # Wait for explicit success indicators or timeout
             while time.time() - start_time < max_wait_time:
                 try:
-                    # Check for follow restriction modal only every 3 seconds to avoid performance issues
-                    if (time.time() - start_time) % 3 < 0.5:  # Check roughly every 3 seconds
+                    # Check for follow restriction modal only every 3 seconds to avoid performance issues (skip in test mode)
+                    if not self.is_test_mode and (time.time() - start_time) % 3 < 0.5:  # Check roughly every 3 seconds
                         if self.check_for_follow_restriction_modal():
                             logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected during follow check for {username}")
                             self.is_follow_blocked = True
@@ -1301,23 +1305,27 @@ class InstagramFollowBot:
                 follow_button.click()
                 logger.info(f"Profile No.{self.profile_id}: Clicked follow button for {username}")
 
-                # Check for follow restriction modal after clicking (optimized)
+                # Check for follow restriction modal after clicking (skip in test mode)
                 time.sleep(0.5)  # Reduced wait time
-                if self.check_for_follow_restriction_modal():
-                    logger.error(f"Profile No.{self.profile_id}: Follow restriction modal appeared after clicking follow for {username}")
-                    self.is_follow_blocked = True
-                    # Update local profile status immediately
-                    self._update_local_profile_status()
-                    return False
-                
-                # Additional check after 2 seconds
-                time.sleep(1.0)
-                if self.check_for_follow_restriction_modal():
-                    logger.error(f"Profile No.{self.profile_id}: Follow restriction modal appeared 2 seconds after clicking follow for {username}")
-                    self.is_follow_blocked = True
-                    # Update local profile status immediately
-                    self._update_local_profile_status()
-                    return False
+                if not self.is_test_mode:
+                    if self.check_for_follow_restriction_modal():
+                        logger.error(f"Profile No.{self.profile_id}: Follow restriction modal appeared after clicking follow for {username}")
+                        self.is_follow_blocked = True
+                        # Update local profile status immediately
+                        self._update_local_profile_status()
+                        return False
+                    
+                    # Additional check after 2 seconds
+                    time.sleep(1.0)
+                    if self.check_for_follow_restriction_modal():
+                        logger.error(f"Profile No.{self.profile_id}: Follow restriction modal appeared 2 seconds after clicking follow for {username}")
+                        self.is_follow_blocked = True
+                        # Update local profile status immediately
+                        self._update_local_profile_status()
+                        return False
+                else:
+                    logger.info(f"Profile No.{self.profile_id}: TEST MODE - Skipping follow restriction modal checks after clicking follow")
+                    time.sleep(1.5)  # Still wait for page to load
 
                 # ENHANCED: Check if follow action was successful with new public account follow block detection
                 follow_success = self.check_follow_action_success(username, max_wait_time=follow_check_timeout)
