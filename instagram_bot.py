@@ -73,6 +73,14 @@ def update_airtable_status(profile_number, status):
         if records:
             record_id = records[0]['id']
             update_data = {'Status': [status]}
+            
+            # If status is 'Follow Block', also update 'Reached Follow Limit' field
+            if status == 'Follow Block':
+                from datetime import datetime
+                current_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                update_data['Reached Follow Limit'] = current_datetime
+                logger.info(f"Profile {profile_number}: Also updating 'Reached Follow Limit' to '{current_datetime}'")
+            
             result = table.update(record_id, update_data)
             logger.info(f"Profile {profile_number}: Successfully updated Airtable status to '{status}'")
             return True
@@ -105,6 +113,7 @@ class InstagramFollowBot:
         self.is_follow_blocked = False
         self.window_recovery_attempts = 0
         self.max_window_recovery_attempts = 3
+        self.is_test_mode = False  # Flag to indicate test mode
 
     def check_adspower_connection(self):
         """Check if AdsPower API is accessible"""
@@ -548,6 +557,7 @@ class InstagramFollowBot:
                 update_airtable_status(self.profile_id, 'Suspended')
                 return False
 
+
             logger.info(f"Profile No.{self.profile_id}: Navigated to Instagram")
             return True
         except Exception as e:
@@ -666,6 +676,7 @@ class InstagramFollowBot:
             # Wait for explicit success indicators or timeout
             while time.time() - start_time < max_wait_time:
                 try:
+
                     # Method 1: Look for "Following" or "Requested" buttons
                     success_selectors = [
                         "//button[text()='Following']",
@@ -859,6 +870,53 @@ class InstagramFollowBot:
                 f"Profile No.{self.profile_id}: Error checking follow success for {username}: {str(e)[:100]}...")
             return False
 
+    def _update_local_profile_status(self):
+        """Update local profile status for dashboard display"""
+        try:
+            from dashboard_controller import profiles, profiles_lock
+            pid_str = str(self.profile_id)
+            
+            # Update status directly in profiles cache (like "Running" does)
+            with profiles_lock:
+                # Try to find profile by profile_id first
+                if pid_str in profiles:
+                    profiles[pid_str]['status'] = 'Blocked'
+                    profiles[pid_str]['stop_requested'] = True
+                    profiles[pid_str]['airtable_status'] = 'Follow Block'
+                    logger.info(f"Profile No.{self.profile_id}: Updated local profile status to Blocked directly")
+                else:
+                    # If not found by profile_id, try to find by profile_number
+                    found = False
+                    for key, info in profiles.items():
+                        if info.get('profile_number') == pid_str:
+                            profiles[key]['status'] = 'Blocked'
+                            profiles[key]['stop_requested'] = True
+                            profiles[key]['airtable_status'] = 'Follow Block'
+                            logger.info(f"Profile No.{self.profile_id}: Updated local profile status to Blocked by profile_number")
+                            found = True
+                            break
+                    
+                    if not found:
+                        # Try to find by adspower_serial as last resort
+                        for key, info in profiles.items():
+                            if info.get('adspower_serial') == pid_str:
+                                profiles[key]['status'] = 'Blocked'
+                                profiles[key]['stop_requested'] = True
+                                profiles[key]['airtable_status'] = 'Follow Block'
+                                logger.info(f"Profile No.{self.profile_id}: Updated local profile status to Blocked by adspower_serial")
+                                found = True
+                                break
+                    
+                    if not found:
+                        logger.warning(f"Profile No.{self.profile_id}: Not found in profiles cache by profile_id, profile_number, or adspower_serial")
+            
+            # Also call StatusManager for Airtable update
+            from dashboard_controller import StatusManager
+            StatusManager.mark_profile_blocked(self.profile_id)
+            logger.info(f"Profile No.{self.profile_id}: Updated local profile status to Blocked using StatusManager")
+        except Exception as e:
+            logger.debug(f"Profile No.{self.profile_id}: Could not update local profile status: {e}")
+
     def check_for_follow_block(self):
         """Check if the account has received a follow block"""
         try:
@@ -867,12 +925,12 @@ class InstagramFollowBot:
                 logger.warning(f"Profile No.{self.profile_id}: Cannot check for follow block - browser unavailable")
                 return False  # Don't treat window issues as follow blocks
 
+
             current_url = self.driver.current_url
             page_source = self.driver.page_source.lower()
 
             # Check for follow block indicators in page source
             follow_block_indicators = [
-                "try again later",
                 "action blocked",
                 "we restrict certain activity",
                 "temporarily blocked",
@@ -888,9 +946,8 @@ class InstagramFollowBot:
 
             # Check for follow block dialog/popup elements
             block_selectors = [
-                "//div[contains(text(), 'Try Again Later')]",
                 "//div[contains(text(), 'Action Blocked')]",
-                "//h2[contains(text(), 'Try Again Later')]",
+                "//h2[contains(text(), 'Action Blocked')]",
                 "//*[contains(text(), 'temporarily blocked')]",
                 "//*[contains(text(), 'slow down')]"
             ]
@@ -983,6 +1040,9 @@ class InstagramFollowBot:
                 follow_button.click()
                 logger.info(f"Profile No.{self.profile_id}: Clicked follow button for {username}")
 
+                # Wait for page to load after clicking follow
+                time.sleep(1.5)
+
                 # ENHANCED: Check if follow action was successful with new public account follow block detection
                 follow_success = self.check_follow_action_success(username, max_wait_time=follow_check_timeout)
 
@@ -1014,6 +1074,8 @@ class InstagramFollowBot:
                             f"Profile No.{self.profile_id}: 3 consecutive follow failures - likely FOLLOW BLOCKED! Stopping this profile.")
                         self.is_follow_blocked = True
                         update_airtable_status(self.profile_id, 'Follow Block')
+                        # Update local profile status immediately
+                        self._update_local_profile_status()
                         return False
 
                     return False
@@ -1101,8 +1163,10 @@ class InstagramFollowBot:
             # Check if account is follow blocked
             if self.is_follow_blocked:
                 logger.error(f"Profile No.{self.profile_id}: Account is follow blocked. Stopping bot for this profile.")
+                logger.error(f"Profile No.{self.profile_id}: is_follow_blocked = {self.is_follow_blocked}")
                 results['follow_block_stopped'] = True
                 break
+
 
             # Check if we've reached the maximum number of follows
             if max_follows and follow_count >= max_follows:
@@ -1436,7 +1500,7 @@ if __name__ == "__main__":
 
     print("=" * 60)
     print("ENHANCED FOLLOW BLOCK DETECTION FEATURES:")
-    print("✅ Traditional follow block detection (Try Again Later, Action Blocked)")
+    print("✅ Traditional follow block detection (Action Blocked, etc.)")
     print("✅ NEW: Public account 'Requested' button detection")
     print("✅ Private account 'Requested' button (normal behavior)")
     print("✅ Automatic Airtable status updates")

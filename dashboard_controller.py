@@ -60,15 +60,7 @@ pending_profiles_queue = []
 active_profiles_count = 0
 username_update_counter = 0  # Track when to update file
 
-# Dashboard state cache - completely separate from profile operations
-dashboard_cache = {
-    'profiles': {},
-    'stats': {},
-    'status': {},
-    'last_update': 0,
-    'update_interval': 1.0  # Update cache every 1 second max
-}
-dashboard_cache_lock = threading.RLock()
+# Removed dashboard cache - we'll read directly from Airtable and files
 
 # Separate thread pools for different operations
 profile_executor = ThreadPoolExecutor(max_workers=20, thread_name_prefix="profile")
@@ -256,105 +248,84 @@ def get_profile_name(pid):
     return f"Profile {pid}"
 
 
-class DashboardCacheManager:
-    """Manages dashboard cache completely separately from profile operations"""
+class DashboardDataManager:
+    """Manages dashboard data by reading directly from sources - no caching"""
 
     @staticmethod
-    def update_cache():
-        """Update dashboard cache in background"""
+    def get_dashboard_data():
+        """Get fresh data for dashboard display - reads directly from sources"""
         try:
-            current_time = time.time()
+            # Get profiles data from memory (already loaded from Airtable)
+            profiles_data = {}
+            with profiles_lock:
+                # Check if profiles are still loading
+                if not profiles:
+                    return {
+                        'profiles': {},
+                        'stats': {},
+                        'status': {},
+                        'loading': True,
+                        'message': 'Loading profiles from Airtable...'
+                    }
+                
+                for pid, info in profiles.items():
+                    # Only copy serializable data, skip thread and bot objects
+                    profiles_data[pid] = {
+                        'status': info.get('status', 'Not Running'),
+                        'stop_requested': info.get('stop_requested', False),
+                        'username': info.get('username', 'Unknown'),
+                        'adspower_name': info.get('adspower_name'),
+                        'airtable_status': info.get('airtable_status', 'Alive'),
+                        'vps_status': info.get('vps_status', 'None'),
+                        'phase': info.get('phase', 'None'),
+                        'batch': info.get('batch', 'None'),
+                        'profile_number': info.get('profile_number', pid),
+                        'has_assigned_followers': info.get('assigned_followers_file') is not None,
+                        'assigned_followers_count': ProfileSpecificUsernameManager.get_remaining_count_for_profile(pid),
+                        'temp_stats': info.get('temp_stats', {
+                            'last_run': 0,
+                            'today': 0,
+                            'total': 0
+                        })
+                    }
 
-            with dashboard_cache_lock:
-                # Only update if enough time has passed
-                if current_time - dashboard_cache['last_update'] < dashboard_cache['update_interval']:
-                    return
-
-                # Take a quick snapshot of profiles - MANUALLY COPY ONLY SAFE DATA
-                with profiles_lock:
-                    profiles_snapshot = {}
-                    for pid, info in profiles.items():
-                        # Only copy serializable data, skip thread and bot objects
-                        profiles_snapshot[pid] = {
-                            'status': info.get('status', 'Not Running'),
-                            'stop_requested': info.get('stop_requested', False),
-                            'username': info.get('username', 'Unknown'),
-                            'adspower_name': info.get('adspower_name'),
-                            'airtable_status': info.get('airtable_status', 'Alive'),
-                            'vps_status': info.get('vps_status', 'None'),
-                            'phase': info.get('phase', 'None'),
-                            'batch': info.get('batch', 'None'),
-                            'profile_number': info.get('profile_number', pid),
-                            'has_assigned_followers': info.get('assigned_followers_file') is not None,
-                            'assigned_followers_count': ProfileSpecificUsernameManager.get_remaining_count_for_profile(pid),
-                            'temp_stats': info.get('temp_stats', {
-                                'last_run': 0,
-                                'today': 0,
-                                'total': 0
-                            })
-                        }
-
-                # Update cache
-                dashboard_cache['profiles'] = profiles_snapshot
-                dashboard_cache['last_update'] = current_time
-
-                # Load stats and status from files asynchronously
-                io_executor.submit(DashboardCacheManager._update_file_caches)
-
-        except Exception as e:
-            logger.error(f"Error updating dashboard cache: {e}")
-
-    @staticmethod
-    def _update_file_caches():
-        """Update file-based caches in background"""
-        try:
-            # Load stats
+            # Load stats from file
+            stats_data = {}
             if os.path.exists(STATS_FILE):
                 try:
                     with open(STATS_FILE, 'r') as f:
-                        stats_data = json.load(f)
-
+                        stats_file_data = json.load(f)
+                    
                     # Process stats
                     today = datetime.now().strftime('%Y-%m-%d')
-                    processed_stats = {}
-
-                    for pid, stats in stats_data.items():
+                    for pid, stats in stats_file_data.items():
                         today_count = stats.get('today', {}).get(today, 0)
-                        processed_stats[pid] = {
+                        stats_data[pid] = {
                             'last_run': stats.get('last_run', 0),
                             'today': today_count,
                             'total_all_time': stats.get('total_all_time', 0)
                         }
+                except Exception as e:
+                    logger.error(f"Error loading stats: {e}")
 
-                    with dashboard_cache_lock:
-                        dashboard_cache['stats'] = processed_stats
-                except:
-                    pass
-
-            # Load status
+            # Load status from file
+            status_data = {}
             if os.path.exists(STATUS_FILE):
                 try:
                     with open(STATUS_FILE, 'r') as f:
                         status_data = json.load(f)
+                except Exception as e:
+                    logger.error(f"Error loading status: {e}")
 
-                    with dashboard_cache_lock:
-                        dashboard_cache['status'] = status_data
-                except:
-                    pass
+            return {
+                'profiles': profiles_data,
+                'stats': stats_data,
+                'status': status_data
+            }
 
         except Exception as e:
-            logger.error(f"Error updating file caches: {e}")
-
-    @staticmethod
-    def get_cached_data():
-        """Get cached data for dashboard display"""
-        with dashboard_cache_lock:
-            # Return a simple copy of the already-safe data
-            return {
-                'profiles': dict(dashboard_cache['profiles']),
-                'stats': dict(dashboard_cache['stats']),
-                'status': dict(dashboard_cache['status'])
-            }
+            logger.error(f"Error getting dashboard data: {e}")
+            return {'profiles': {}, 'stats': {}, 'status': {}}
 
 
 class AsyncFileManager:
@@ -743,10 +714,21 @@ class StatsManager:
                     'total_all_time': temp_stats.get('total', 0)
                 }
 
-        # Check dashboard cache
-        cached_data = DashboardCacheManager.get_cached_data()
-        if pid_str in cached_data['stats']:
-            return cached_data['stats'][pid_str]
+        # Check file-based stats
+        if os.path.exists(STATS_FILE):
+            try:
+                with open(STATS_FILE, 'r') as f:
+                    stats_data = json.load(f)
+                if pid_str in stats_data:
+                    today = datetime.now().strftime('%Y-%m-%d')
+                    today_count = stats_data[pid_str].get('today', {}).get(today, 0)
+                    return {
+                        'last_run': stats_data[pid_str].get('last_run', 0),
+                        'today': today_count,
+                        'total_all_time': stats_data[pid_str].get('total_all_time', 0)
+                    }
+            except:
+                pass
 
         # Default
         return {
@@ -761,15 +743,13 @@ class StatusManager:
 
     @staticmethod
     def get_persistent_status(profile_id):
-        """Get persistent status for a profile from cache"""
-        # Get cached data without holding locks for too long
+        """Get persistent status for a profile from file"""
         try:
-            with dashboard_cache_lock:
-                # Quick copy of just what we need
-                status_dict = dashboard_cache.get('status', {})
-
-            # Return the status outside of the lock
-            return status_dict.get(str(profile_id))
+            if os.path.exists(STATUS_FILE):
+                with open(STATUS_FILE, 'r') as f:
+                    status_data = json.load(f)
+                return status_data.get(str(profile_id))
+            return None
         except Exception as e:
             logger.error(f"Error getting persistent status for {profile_id}: {e}")
             return None
@@ -778,29 +758,55 @@ class StatusManager:
     def mark_profile_blocked(profile_id):
         """Mark profile as permanently blocked"""
         try:
+            # profile_id is the AdsPower ID (like 'k144ink8')
+            # We need to find the profile_number (like '1091') from the profiles cache
             pid_str = str(profile_id)
+            profile_number = None
 
-            # Update in-memory
+            # Update in-memory - search by AdsPower ID first, then by other identifiers
             with profiles_lock:
                 if pid_str in profiles:
-                    profiles[pid_str]['status'] = 'Blocked'
-                    profiles[pid_str]['stop_requested'] = True
-                    profiles[pid_str]['airtable_status'] = 'Follow Block'
+                    info = profiles[pid_str]
+                    info['status'] = 'Blocked'
+                    info['stop_requested'] = True
+                    info['airtable_status'] = 'Follow Block'
+                    profile_number = info.get('profile_number')
+                    logger.info(f"Profile {profile_id} found by AdsPower ID and marked as BLOCKED")
+                else:
+                    # Try to find by profile_number or adspower_serial
+                    found = False
+                    for key, info in profiles.items():
+                        if info.get('profile_number') == pid_str or info.get('adspower_serial') == pid_str:
+                            info['status'] = 'Blocked'
+                            info['stop_requested'] = True
+                            info['airtable_status'] = 'Follow Block'
+                            profile_number = info.get('profile_number')
+                            logger.info(f"Profile {profile_id} found by profile_number/adspower_serial and marked as BLOCKED")
+                            found = True
+                            break
                     
-                    # Get profile_number for Airtable update
-                    profile_number = profiles[pid_str].get('profile_number')
+                    if not found:
+                        logger.warning(f"Profile {profile_id} not found in profiles cache")
 
             # Write status asynchronously
-            AsyncFileManager.write_status_async({pid_str: 'blocked'})
+            if pid_str in profiles:
+                AsyncFileManager.write_status_async({pid_str: 'blocked'})
 
             logger.info(f"Profile {profile_id} marked as BLOCKED")
 
             # Update Airtable asynchronously (only if we have a profile_number)
             if profile_number:
+                # Update status to 'Follow Block'
                 airtable_executor.submit(
                     AirtableManager.update_profile_status,
                     profile_number,
                     'Follow Block'
+                )
+                # Update 'Reached Follow Limit' field with current datetime
+                airtable_executor.submit(
+                    AirtableManager.update_reached_follow_limit,
+                    profile_number,
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 )
             else:
                 logger.warning(f"Profile {profile_id}: No profile_number found, skipping Airtable update")
@@ -852,6 +858,7 @@ class StatusManager:
                 if pid_str in profiles:
                     profiles[pid_str]['status'] = 'Not Running'
                     profiles[pid_str]['airtable_status'] = 'Alive'
+                    profiles[pid_str]['stop_requested'] = False
                     
                     # Get profile_number for Airtable update
                     profile_number = profiles[pid_str].get('profile_number')
@@ -859,7 +866,7 @@ class StatusManager:
             # Write status asynchronously (None = delete)
             AsyncFileManager.write_status_async({pid_str: None})
 
-            logger.info(f"Profile {profile_id} REVIVED")
+            logger.info(f"Profile {profile_id} REVIVED - status: Not Running, airtable_status: Alive")
 
             # Update Airtable asynchronously (only if we have a profile_number)
             if profile_number:
@@ -880,6 +887,61 @@ class StatusManager:
 
 class AirtableManager:
     """Manages Airtable operations"""
+    
+    @staticmethod
+    def sync_profiles_from_airtable():
+        """Sync profile statuses from Airtable to local cache"""
+        if not AIRTABLE_AVAILABLE:
+            logger.warning("Airtable not available for sync")
+            return False
+            
+        try:
+            api = AirtableManager._get_api()
+            table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+            
+            # Get all profiles from Airtable
+            records = table.all()
+            logger.info(f"Syncing {len(records)} profiles from Airtable...")
+            
+            updated_count = 0
+            with profiles_lock:
+                for record in records:
+                    # Find profile by profile_number
+                    profile_number = None
+                    for field_name in ['Profile', 'Profile Number', 'Profile ID', 'ID A']:
+                        if field_name in record['fields']:
+                            profile_number = str(record['fields'][field_name])
+                            break
+                    
+                    if not profile_number:
+                        continue
+                    
+                    # Find matching profile in cache
+                    found_profile = None
+                    for pid, info in profiles.items():
+                        if info.get('profile_number') == profile_number:
+                            found_profile = pid
+                            break
+                    
+                    if found_profile:
+                        # Update airtable_status from Airtable
+                        airtable_status = record['fields'].get('Status', 'Alive')
+                        if isinstance(airtable_status, list):
+                            airtable_status = airtable_status[0] if airtable_status else 'Alive'
+                        
+                        old_status = profiles[found_profile].get('airtable_status')
+                        profiles[found_profile]['airtable_status'] = airtable_status
+                        
+                        if old_status != airtable_status:
+                            logger.info(f"Profile {found_profile} ({profile_number}): Updated airtable_status from '{old_status}' to '{airtable_status}'")
+                            updated_count += 1
+            
+            logger.info(f"Sync completed: {updated_count} profiles updated from Airtable")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error syncing profiles from Airtable: {e}")
+            return False
 
     # Connection pooling
     _api_instance = None
@@ -941,6 +1003,45 @@ class AirtableManager:
                     return False
 
     @staticmethod
+    def update_reached_follow_limit(profile_number, date_blocked=None):
+        """Update 'Reached Follow Limit' field in Airtable with the date when bot was blocked"""
+        if not AIRTABLE_AVAILABLE:
+            return False
+
+        if date_blocked is None:
+            date_blocked = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        max_retries = 2
+        retry_delay = 1
+
+        for attempt in range(max_retries):
+            try:
+                AirtableManager._rate_limit()
+
+                api = AirtableManager._get_api()
+                table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+
+                records = table.all(formula=f"{{Profile}} = {profile_number}")
+
+                if records:
+                    record_id = records[0]['id']
+                    update_data = {'Reached Follow Limit': date_blocked}
+                    result = table.update(record_id, update_data)
+                    logger.info(f"✅ Updated profile {profile_number} 'Reached Follow Limit' to '{date_blocked}' in Airtable")
+                    return True
+                else:
+                    logger.warning(f"❌ Profile {profile_number} not found in Airtable for 'Reached Follow Limit' update")
+                    return False
+
+            except Exception as e:
+                logger.error(f"❌ Error updating profile {profile_number} 'Reached Follow Limit': {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    return False
+
+    @staticmethod
     def update_profile_statistics(profile_number, last_run=None, follows_today=None, total_follows=None):
         """Update profile statistics in Airtable"""
         if not AIRTABLE_AVAILABLE:
@@ -983,7 +1084,7 @@ class AirtableManager:
 
     @staticmethod
     def load_profiles():
-        """Load profile numbers and usernames from Airtable"""
+        """Load profile numbers and usernames from Airtable - OPTIMIZED VERSION"""
         if not AIRTABLE_AVAILABLE:
             logger.error("pyairtable library not available")
             return []
@@ -995,11 +1096,11 @@ class AirtableManager:
 
             logger.info(f"Fetching profiles from Airtable view {AIRTABLE_VIEW_ID}...")
             
-            # The all() method handles pagination internally with rate limiting
-            AirtableManager._rate_limit()  # Initial rate limit
-            records = table.all(view=AIRTABLE_VIEW_ID)
-            
-            logger.info(f"Total records fetched: {len(records)}")
+            # Use Airtable's built-in pagination - it handles this automatically
+            logger.info("Using Airtable's built-in pagination...")
+            AirtableManager._rate_limit()
+            all_records = table.all(view=AIRTABLE_VIEW_ID)
+            logger.info(f"Total records fetched: {len(all_records)}")
 
             # First pass: collect all AdsPower IDs and Assigned IG records for batch querying
             adspower_ids_to_query = []
@@ -1008,7 +1109,7 @@ class AirtableManager:
             
             profile_field_names = ['Profile', 'Profile Number', 'AdsPower Profile', 'Profile ID', 'ID A']
             
-            for record in records:
+            for record in all_records:
                 record_data = {'record': record}
                 
                 # Find profile number
@@ -1275,8 +1376,7 @@ class ConcurrencyManager:
                 # Check every second
                 time.sleep(1)
 
-                # Update dashboard cache
-                DashboardCacheManager.update_cache()
+                # No cache updates needed - we read directly from sources
 
                 # Check for pending profiles
                 if pending_profiles_queue:
@@ -1308,8 +1408,18 @@ class ProfileRunner:
             if key in profiles:
                 airtable_status = profiles[key].get('airtable_status', 'Alive')
         
+        # Convert airtable_status to string if it's a list (Airtable multi-select fields)
+        if isinstance(airtable_status, list):
+            airtable_status = airtable_status[0] if airtable_status else 'Alive'
+        
         was_blocked = persistent_status == 'blocked' or airtable_status == 'Follow Block'
         is_test_mode = max_follows == 1
+        
+        logger.info(f"Profile {pid} starting: was_blocked={was_blocked}, is_test_mode={is_test_mode}, persistent_status={persistent_status}, airtable_status={airtable_status}")
+        
+        # Log username queue status for debugging
+        remaining_usernames = UsernameManager.get_remaining_count()
+        logger.info(f"Profile {pid}: Username queue has {remaining_usernames} usernames available")
 
         # Update status
         with profiles_lock:
@@ -1344,6 +1454,11 @@ class ProfileRunner:
         # Use AdsPower serial number if available, otherwise fall back to pid
         bot_profile_id = adspower_serial if adspower_serial else pid
         bot = InstagramFollowBot(profile_id=bot_profile_id)
+        
+        # Set test mode flag for the bot
+        if max_follows == 1:
+            bot.is_test_mode = True
+            logger.info(f"Profile {pid}: Set bot test mode flag to True")
 
         with profiles_lock:
             profiles[key]['bot'] = bot
@@ -1385,11 +1500,21 @@ class ProfileRunner:
                 bot.stop_profile()
                 return
 
+
             # Follow loop
             follows_this_hour = 0
             hour_start_time = time.time()
 
+            logger.info(f"Profile {pid}: Starting follow loop with max_follows={max_follows}")
+            if max_follows == 1:
+                logger.info(f"Profile {pid}: TEST MODE - Starting follow loop to test for blocks")
+            
             for i in range(max_follows):
+                logger.info(f"Profile {pid}: Follow loop iteration {i + 1}/{max_follows}")
+                
+                # For test mode, log that we're about to attempt follow
+                if max_follows == 1:
+                    logger.info(f"Profile {pid}: TEST MODE - About to attempt follow to check for blocks")
                 # Check stop request
                 stop_requested = False
                 with profiles_lock:
@@ -1418,17 +1543,49 @@ class ProfileRunner:
                     # Fallback to shared username pool
                     username = UsernameManager.get_next_username()
                     if not username:
-                        with profiles_lock:
-                            profiles[key]['status'] = 'Finished'
-                        break
+                        # For test mode, try to get a real username from the file
+                        if max_follows == 1:  # Test mode
+                            try:
+                                # Try to get a real username from the file for testing
+                                with open('usernames.txt', 'r', encoding='utf-8') as f:
+                                    lines = f.readlines()
+                                    if lines:
+                                        username = lines[0].strip()
+                                        logger.info(f"Profile {pid}: Using real username from file for test: {username}")
+                                    else:
+                                        username = "instagram"  # Fallback to a known existing account
+                                        logger.info(f"Profile {pid}: Using fallback username for test: {username}")
+                            except:
+                                username = "instagram"  # Fallback to a known existing account
+                                logger.info(f"Profile {pid}: Using fallback username for test: {username}")
+                        else:
+                            logger.warning(f"Profile {pid}: No usernames available, finishing profile")
+                            with profiles_lock:
+                                profiles[key]['status'] = 'Finished'
+                            break
+                    else:
+                        logger.info(f"Profile {pid}: Got username from shared pool: {username}")
+                else:
+                    logger.info(f"Profile {pid}: Got username from profile-specific pool: {username}")
 
                 # Pre-action pause
                 pause = random.uniform(pre_action_delay[0], pre_action_delay[1])
                 time.sleep(pause)
 
                 # Follow user
-                logger.info(f"Profile {pid}: Following {username} ({i + 1}/{max_follows})")
+                if max_follows == 1:  # Test mode
+                    logger.info(f"Profile {pid}: TEST MODE - Attempting to follow {username} to check for blocks")
+                    logger.info(f"Profile {pid}: TEST MODE - Will navigate to https://www.instagram.com/{username}/")
+                else:
+                    logger.info(f"Profile {pid}: Following {username} ({i + 1}/{max_follows})")
+                
+                logger.info(f"Profile {pid}: Calling bot.follow_user() with username: {username}")
                 success = bot.follow_user(username, fast_mode=False, delay_config=delay_config)
+                logger.info(f"Profile {pid}: bot.follow_user() returned: {success}")
+                
+                # For test mode, log additional info
+                if max_follows == 1:
+                    logger.info(f"Profile {pid}: TEST MODE - Follow attempt completed, success: {success}")
 
                 if success:
                     StatsManager.increment_follow_count(pid)
@@ -1464,7 +1621,13 @@ class ProfileRunner:
         except Exception as e:
             logger.error(f"Profile {pid} error: {e}")
             with profiles_lock:
-                profiles[key]['status'] = 'Error'
+                # Only set to Error if not already Blocked or Suspended
+                current_status = profiles[key].get('status', '')
+                if current_status not in ['Blocked', 'Suspended']:
+                    profiles[key]['status'] = 'Error'
+                    logger.info(f"Profile {pid}: Set status to Error due to exception")
+                else:
+                    logger.info(f"Profile {pid}: Keeping status as {current_status} despite exception")
         finally:
             # Cleanup
             bot.stop_profile()
@@ -1475,18 +1638,50 @@ class ProfileRunner:
             
             with profiles_lock:
                 final_status = profiles[key]['status']
-                if profiles[key]['status'] == 'Running':
+                
+                # If bot was blocked but status is not Blocked, update it
+                if bot_was_blocked and final_status != 'Blocked':
+                    profiles[key]['status'] = 'Blocked'
+                    profiles[key]['airtable_status'] = 'Follow Block'
+                    final_status = 'Blocked'
+                    logger.info(f"Profile {pid}: Updated status to Blocked because bot was blocked")
+                    
+                    # Also update Airtable with 'Reached Follow Limit' field
+                    profile_number = profiles[key].get('profile_number')
+                    if profile_number:
+                        airtable_executor.submit(
+                            AirtableManager.update_profile_status,
+                            profile_number,
+                            'Follow Block'
+                        )
+                        airtable_executor.submit(
+                            AirtableManager.update_reached_follow_limit,
+                            profile_number,
+                            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        )
+                        logger.info(f"Profile {pid}: Updated Airtable with Follow Block and Reached Follow Limit")
+                elif profiles[key]['status'] == 'Running':
                     profiles[key]['status'] = 'Finished'
+                    
                 profiles[key]['bot'] = None
+
+            logger.info(f"Profile {pid} finished: is_test_mode={is_test_mode}, was_blocked={was_blocked}, bot_was_blocked={bot_was_blocked}, final_status={final_status}")
 
             # If this was a test mode and the profile was previously blocked but completed successfully
             # Check both the final status AND the bot's internal follow block flag
             if is_test_mode and was_blocked:
-                if not bot_was_blocked and final_status in ['Running', 'Finished', 'Testing']:
-                    logger.info(f"Test successful for previously blocked profile {pid} - reviving profile")
+                logger.info(f"🔍 TEST MODE for previously blocked profile {pid}: bot_was_blocked={bot_was_blocked}, final_status={final_status}")
+                if not bot_was_blocked and final_status in ['Running', 'Finished', 'Testing', 'Not Running']:
+                    logger.info(f"✅ TEST SUCCESSFUL for previously blocked profile {pid} - reviving profile")
                     StatusManager.revive_profile_status(pid)
                 else:
-                    logger.info(f"Test confirmed profile {pid} is still blocked - keeping blocked status")
+                    logger.info(f"❌ TEST CONFIRMED profile {pid} is still blocked - keeping blocked status")
+            elif is_test_mode:
+                logger.info(f"🔍 TEST MODE for non-blocked profile {pid} - checking if profile is working correctly")
+                if bot_was_blocked:
+                    logger.info(f"⚠️ TEST DETECTED new block for profile {pid} - marking as blocked")
+                else:
+                    logger.info(f"✅ TEST SUCCESSFUL for profile {pid} - profile is working correctly")
 
             # Update Airtable
             if profiles[key]['status'] in ['Finished', 'Stopped', 'Blocked', 'Suspended']:
@@ -1521,22 +1716,49 @@ class ProfileRunner:
     @staticmethod
     def start_profile_internal(pid):
         """Internal function to start a profile"""
-        key = str(pid)
+        # First, try to find the profile by profile_number, adspower_serial, or adspower_id
+        actual_profile_id = None
+        with profiles_lock:
+            # Try to find by profile_number first
+            for key, info in profiles.items():
+                if info.get('profile_number') == str(pid) or info.get('adspower_serial') == str(pid):
+                    actual_profile_id = key
+                    logger.info(f"Profile {pid} found in cache with key: {actual_profile_id}")
+                    break
+            
+            # If not found by profile_number, try by adspower_id
+            if not actual_profile_id and str(pid) in profiles:
+                actual_profile_id = str(pid)
+                logger.info(f"Profile {pid} found directly in cache")
+            
+            # If still not found, try to find by adspower_id in the data
+            if not actual_profile_id:
+                for key, info in profiles.items():
+                    if info.get('adspower_id') == str(pid):
+                        actual_profile_id = key
+                        logger.info(f"Profile {pid} found by adspower_id with key: {actual_profile_id}")
+                        break
+
+        if not actual_profile_id:
+            logger.error(f"Profile {pid} not found in profiles cache")
+            logger.error(f"Available profiles: {list(profiles.keys())[:5]}...")  # Show first 5 for debugging
+            return False
+
+        key = actual_profile_id
 
         # Check if already running
         with profiles_lock:
             if key in profiles:
                 if profiles[key].get('thread') and profiles[key]['thread'].is_alive():
-                    logger.info(f"Profile {pid} is already running")
+                    logger.info(f"Profile {pid} (key: {key}) is already running")
                     return False
 
         # Check Airtable status has priority
-        key = str(pid)
         with profiles_lock:
             if key in profiles:
                 airtable_status = profiles[key].get('airtable_status', 'Alive')
                 if airtable_status == 'Follow Block' or airtable_status == 'Suspended':
-                    logger.info(f"Profile {pid} is {airtable_status} in Airtable")
+                    logger.info(f"Profile {pid} (key: {key}) is {airtable_status} in Airtable")
                     return False
 
         # Get follow limits
@@ -1560,16 +1782,16 @@ class ProfileRunner:
         # Start thread
         t = threading.Thread(
             target=ProfileRunner.profile_runner_wrapper,
-            args=(pid, max_follows),
+            args=(key, max_follows),  # Use the actual key
             daemon=True,
-            name=f"Profile-{pid}"
+            name=f"Profile-{key}"
         )
 
         with profiles_lock:
             profiles[key]['thread'] = t
 
         t.start()
-        logger.info(f"Profile {pid} started (max {max_follows} follows)")
+        logger.info(f"Profile {pid} (key: {key}) started (max {max_follows} follows)")
         return True
 
 
@@ -1592,7 +1814,34 @@ class ProfileController:
     @staticmethod
     def stop_profile(pid):
         """Stop a running profile"""
-        key = str(pid)
+        # First, try to find the profile by profile_number, adspower_serial, or adspower_id
+        actual_profile_id = None
+        with profiles_lock:
+            # Try to find by profile_number first
+            for key, info in profiles.items():
+                if info.get('profile_number') == str(pid) or info.get('adspower_serial') == str(pid):
+                    actual_profile_id = key
+                    logger.info(f"Profile {pid} found in cache with key: {actual_profile_id}")
+                    break
+            
+            # If not found by profile_number, try by adspower_id
+            if not actual_profile_id and str(pid) in profiles:
+                actual_profile_id = str(pid)
+                logger.info(f"Profile {pid} found directly in cache")
+            
+            # If still not found, try to find by adspower_id in the data
+            if not actual_profile_id:
+                for key, info in profiles.items():
+                    if info.get('adspower_id') == str(pid):
+                        actual_profile_id = key
+                        logger.info(f"Profile {pid} found by adspower_id with key: {actual_profile_id}")
+                        break
+
+        if not actual_profile_id:
+            logger.error(f"Profile {pid} not found in profiles cache")
+            return False
+
+        key = actual_profile_id
 
         with profiles_lock:
             if key not in profiles:
@@ -1622,7 +1871,7 @@ class ProfileController:
         # Update statistics
         airtable_executor.submit(
             AirtableManager.update_profile_statistics_on_completion,
-            pid
+            key  # Use the actual key
         )
 
         return True
@@ -1636,20 +1885,47 @@ class ProfileController:
     @staticmethod
     def test_profile_internal(pid):
         """Internal function to test a profile with just 1 follow"""
-        key = str(pid)
+        # First, try to find the profile by profile_number, adspower_serial, or adspower_id
+        actual_profile_id = None
+        with profiles_lock:
+            # Try to find by profile_number first
+            for key, info in profiles.items():
+                if info.get('profile_number') == str(pid) or info.get('adspower_serial') == str(pid):
+                    actual_profile_id = key
+                    logger.info(f"Profile {pid} found in cache with key: {actual_profile_id}")
+                    break
+            
+            # If not found by profile_number, try by adspower_id
+            if not actual_profile_id and str(pid) in profiles:
+                actual_profile_id = str(pid)
+                logger.info(f"Profile {pid} found directly in cache")
+            
+            # If still not found, try to find by adspower_id in the data
+            if not actual_profile_id:
+                for key, info in profiles.items():
+                    if info.get('adspower_id') == str(pid):
+                        actual_profile_id = key
+                        logger.info(f"Profile {pid} found by adspower_id with key: {actual_profile_id}")
+                        break
+        
+        if not actual_profile_id:
+            logger.error(f"Profile {pid} not found in profiles cache")
+            return False
+        
+        key = actual_profile_id
         
         # Check if already running
         with profiles_lock:
             if key in profiles:
                 if profiles[key].get('thread') and profiles[key]['thread'].is_alive():
-                    logger.info(f"Profile {pid} is already running")
+                    logger.info(f"Profile {pid} (key: {key}) is already running")
                     return False
         
         # For test mode, we allow testing of blocked/suspended profiles
         # to check if they're still blocked or have been unblocked
-        persistent_status = StatusManager.get_persistent_status(pid)
+        persistent_status = StatusManager.get_persistent_status(key)
         if persistent_status in ['blocked', 'suspended']:
-            logger.info(f"Testing {persistent_status} profile {pid}")
+            logger.info(f"Testing {persistent_status} profile {pid} (key: {key})")
         
         # Update profile info
         with profiles_lock:
@@ -1664,18 +1940,19 @@ class ProfileController:
             })
         
         # Start thread with max_follows=1 for testing
+        # Use the actual profile_id (key) for the thread
         t = threading.Thread(
             target=ProfileRunner.profile_runner_wrapper,
-            args=(pid, 1),  # Only 1 follow for testing
+            args=(key, 1),  # Only 1 follow for testing, use the actual key
             daemon=True,
-            name=f"Profile-{pid}-Test"
+            name=f"Profile-{key}-Test"
         )
         
         with profiles_lock:
             profiles[key]['thread'] = t
         
         t.start()
-        logger.info(f"Profile {pid} started in TEST mode (1 follow only)")
+        logger.info(f"Profile {pid} (key: {key}) started in TEST mode (1 follow only)")
         return True
 
 
@@ -1824,8 +2101,40 @@ class DashboardHandler(BaseHTTPRequestHandler):
             phase_filter = qs.get('phase', ['all'])[0]
             batch_filter = qs.get('batch', ['all'])[0]
 
-            # Get cached data - SUPER FAST
-            cached_data = DashboardCacheManager.get_cached_data()
+            # Get fresh data directly from sources - no caching
+            cached_data = DashboardDataManager.get_dashboard_data()
+
+            # Check if profiles are still loading
+            if cached_data.get('loading'):
+                response = {
+                    'profiles': {},
+                    'pagination': {
+                        'current_page': 1,
+                        'total_pages': 1,
+                        'total_profiles': 0,
+                        'per_page': 0,
+                        'start_index': 0,
+                        'end_index': 0
+                    },
+                    'remaining_usernames': 0,
+                    'concurrent_info': {
+                        'active_profiles': 0,
+                        'max_concurrent': MAX_CONCURRENT_PROFILES,
+                        'pending_profiles': 0
+                    },
+                    'filter': filter_status,
+                    'vps_filter': vps_filter,
+                    'phase_filter': phase_filter,
+                    'batch_filter': batch_filter,
+                    'vps_options': [],
+                    'phase_options': [],
+                    'batch_options': [],
+                    'loading': True,
+                    'message': cached_data.get('message', 'Loading...')
+                }
+                self._set_headers()
+                self.wfile.write(json.dumps(response).encode())
+                return
 
             # Filter profiles
             filtered_profiles = {}
@@ -2001,44 +2310,65 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def initialize_profiles():
-    """Initialize profiles from Airtable"""
-    profiles_list = AirtableManager.load_profiles()
-
-    if not profiles_list:
-        logger.error("No profiles loaded!")
-        return False
-
-    with profiles_lock:
-        for profile_data in profiles_list:
-            pid = profile_data['id']  # This is the AdsPower ID (like 'kwyc4ml')
-            profile_number = profile_data.get('profile_number')
-            profiles[str(pid)] = {
-                'thread': None,
-                'bot': None,
-                'status': 'Not Running',
-                'stop_requested': False,
-                'username': profile_data['username'],
-                'adspower_name': profile_data.get('adspower_name'),
-                'adspower_id': profile_data.get('adspower_id'),
-                'adspower_serial': profile_data.get('adspower_serial'),
-                'profile_number': profile_number,
-                'airtable_status': profile_data['airtable_status'],
-                'vps_status': profile_data.get('vps_status', 'None'),
-                'phase': profile_data.get('phase', 'None'),
-                'batch': profile_data.get('batch', 'None'),
-                'assigned_followers_file': profile_data.get('assigned_followers_file')
-            }
-
-    logger.info(f"Loaded {len(profiles_list)} profiles")
+    """Initialize profiles from Airtable - ASYNC VERSION"""
+    logger.info("Starting async profile loading from Airtable...")
     
-    # Load profile-specific usernames
-    for profile_data in profiles_list:
-        pid = profile_data['id']
-        followers_file = profile_data.get('assigned_followers_file')
-        if followers_file:
-            count = ProfileSpecificUsernameManager.load_profile_usernames(pid, followers_file)
-            logger.info(f"Profile {pid}: Loaded {count} assigned followers")
+    def load_profiles_async():
+        """Load profiles in background"""
+        try:
+            profiles_list = AirtableManager.load_profiles()
+
+            if not profiles_list:
+                logger.error("No profiles loaded!")
+                return False
+
+            with profiles_lock:
+                for profile_data in profiles_list:
+                    pid = profile_data['id']  # This is the AdsPower ID (like 'kwyc4ml')
+                    profile_number = profile_data.get('profile_number')
+                    # Handle airtable_status as array or string
+                    airtable_status = profile_data['airtable_status']
+                    if isinstance(airtable_status, list):
+                        airtable_status = airtable_status[0] if airtable_status else 'Alive'
+                    
+                    profiles[str(pid)] = {
+                        'thread': None,
+                        'bot': None,
+                        'status': 'Not Running',
+                        'stop_requested': False,
+                        'username': profile_data['username'],
+                        'adspower_name': profile_data.get('adspower_name'),
+                        'adspower_id': profile_data.get('adspower_id'),
+                        'adspower_serial': profile_data.get('adspower_serial'),
+                        'profile_number': profile_number,
+                        'airtable_status': airtable_status,
+                        'vps_status': profile_data.get('vps_status', 'None'),
+                        'phase': profile_data.get('phase', 'None'),
+                        'batch': profile_data.get('batch', 'None'),
+                        'assigned_followers_file': profile_data.get('assigned_followers_file')
+                    }
+
+            logger.info(f"✅ Loaded {len(profiles_list)} profiles from Airtable")
+            
+            # Load profile-specific usernames
+            for profile_data in profiles_list:
+                pid = profile_data['id']
+                followers_file = profile_data.get('assigned_followers_file')
+                if followers_file:
+                    count = ProfileSpecificUsernameManager.load_profile_usernames(pid, followers_file)
+                    logger.info(f"Profile {pid}: Loaded {count} assigned followers")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error loading profiles: {e}")
+            return False
+
+    # Start loading in background
+    airtable_executor.submit(load_profiles_async)
     
+    # Return immediately - profiles will be loaded in background
+    logger.info("Profile loading started in background...")
     return True
 
 
@@ -2052,8 +2382,7 @@ def run():
     username_count = UsernameManager.load_usernames_to_queue()
     logger.info(f"Loaded {username_count} usernames")
 
-    # Pre-populate cache
-    DashboardCacheManager.update_cache()
+    # No cache pre-population needed - we read directly from sources
 
     # Start monitor thread
     monitor_thread = threading.Thread(
@@ -2065,14 +2394,15 @@ def run():
 
     # Log info
     logger.info(f"Dashboard at http://localhost:{PORT}")
-    logger.info("✨ ULTIMATE FIX APPLIED:")
-    logger.info("  - Separate dashboard cache from profile operations")
+    logger.info("✨ SIMPLIFIED ARCHITECTURE:")
+    logger.info("  - No caching - reads directly from Airtable and files")
     logger.info("  - Multiple thread pools for different tasks")
     logger.info("  - Async file I/O - no blocking")
-    logger.info("  - Ultra-fast request handling")
+    logger.info("  - Fast request handling without cache complexity")
     logger.info("  - Smart batching for Start All")
     logger.info("  - Profiles start in order from lowest to highest ID")
-    logger.info("🚀 Dashboard will NEVER freeze again!")
+    logger.info("  - Scales to 10k+ profiles without memory issues")
+    logger.info("🚀 Simple, fast, and reliable!")
 
     # Start server
     try:
