@@ -557,16 +557,6 @@ class InstagramFollowBot:
                 update_airtable_status(self.profile_id, 'Suspended')
                 return False
 
-            # Check for follow restriction modal after navigation (skip in test mode)
-            if not self.is_test_mode:
-                if self.check_for_follow_restriction_modal():
-                    self.is_follow_blocked = True
-                    logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected after navigation - updating Airtable")
-                    # Update local profile status for dashboard
-                    self._update_local_profile_status()
-                    return False
-            else:
-                logger.info(f"Profile No.{self.profile_id}: TEST MODE - Skipping follow restriction modal check after navigation")
 
             logger.info(f"Profile No.{self.profile_id}: Navigated to Instagram")
             return True
@@ -686,12 +676,6 @@ class InstagramFollowBot:
             # Wait for explicit success indicators or timeout
             while time.time() - start_time < max_wait_time:
                 try:
-                    # Check for follow restriction modal only every 3 seconds to avoid performance issues (skip in test mode)
-                    if not self.is_test_mode and (time.time() - start_time) % 3 < 0.5:  # Check roughly every 3 seconds
-                        if self.check_for_follow_restriction_modal():
-                            logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected during follow check for {username}")
-                            self.is_follow_blocked = True
-                            return False
 
                     # Method 1: Look for "Following" or "Requested" buttons
                     success_selectors = [
@@ -933,252 +917,6 @@ class InstagramFollowBot:
         except Exception as e:
             logger.debug(f"Profile No.{self.profile_id}: Could not update local profile status: {e}")
 
-    def check_for_follow_restriction_modal(self):
-        """Check for the 'Try Again Later' modal that appears when follow limit is reached"""
-        try:
-            # Check if browser window is available and attempt recovery if needed
-            if not self.check_and_recover_window():
-                logger.warning(f"Profile No.{self.profile_id}: Cannot check for follow restriction modal - browser unavailable")
-                return False
-
-            logger.info(f"Profile No.{self.profile_id}: Checking for follow restriction modal...")
-
-            # First: Enhanced JavaScript check for modal (more comprehensive)
-            try:
-                modal_detected = self.driver.execute_script("""
-                    // Multiple detection strategies for Instagram modal
-                    const textVariations = [
-                        'Try Again Later',
-                        'try again later',
-                        'TRY AGAIN LATER',
-                        'Try again later',
-                        'Try Again later'
-                    ];
-                    
-                    // Strategy 1: Look for any element containing the text
-                    for (const text of textVariations) {
-                        const elements = document.querySelectorAll('*');
-                        for (const el of elements) {
-                            if (el.innerText && el.innerText.includes(text)) {
-                                // Check if it's in a modal context
-                                const modal = el.closest('[role="dialog"], [role="presentation"], ._a9-v, ._a9-y');
-                                if (modal) {
-                                    return {detected: true, method: 'modal_context', text: text, element: el.tagName};
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Strategy 2: Look for h1, h2, h3 with the text
-                    for (const text of textVariations) {
-                        const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
-                        for (const heading of headings) {
-                            if (heading.innerText && heading.innerText.includes(text)) {
-                                return {detected: true, method: 'heading', text: text, element: heading.tagName};
-                            }
-                        }
-                    }
-                    
-                    // Strategy 3: Look for any visible text containing the phrase
-                    for (const text of textVariations) {
-                        const allElements = document.querySelectorAll('*');
-                        for (const el of allElements) {
-                            if (el.innerText && el.innerText.includes(text) && el.offsetParent !== null) {
-                                return {detected: true, method: 'visible_text', text: text, element: el.tagName};
-                            }
-                        }
-                    }
-                    
-                    return {detected: false};
-                """)
-                
-                if modal_detected and modal_detected.get('detected'):
-                    logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via JavaScript - {modal_detected.get('method')} - {modal_detected.get('text')} in {modal_detected.get('element')}")
-                    self.is_follow_blocked = True
-                    update_airtable_status(self.profile_id, 'Follow Block')
-                    self._update_local_profile_status()
-                    return True
-            except Exception as e:
-                logger.debug(f"Profile No.{self.profile_id}: JavaScript check failed: {str(e)[:50]}")
-
-            # Wait a bit for modal to appear (it might be loaded dynamically)
-            time.sleep(0.5)  # Increased to 0.5 seconds for better detection of dynamic content
-
-            # First try to find modal elements with WebDriverWait for better reliability
-            try:
-                from selenium.webdriver.support.ui import WebDriverWait
-                from selenium.webdriver.support import expected_conditions as EC
-                
-                # Wait up to 3 seconds for modal to appear (increased for better detection)
-                wait = WebDriverWait(self.driver, 2)
-                
-                # Enhanced Instagram modal selectors with multiple text variations
-                modal_selectors = [
-                    # Primary: Look for dialog role with headings containing variations
-                    "//div[@role='dialog']//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//div[@role='dialog']//h2[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//div[@role='dialog']//h3[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//div[@role='presentation']//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//div[@role='presentation']//h2[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//div[@role='presentation']//h3[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    
-                    # Secondary: Look for any heading with variations
-                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//h2[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//h3[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    
-                    # Tertiary: Look for dialog structure with modal text variations
-                    "//div[@role='dialog'][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//div[@role='presentation'][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    
-                    # Additional variations
-                    "//div[@role='dialog'][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'action blocked')]",
-                    "//div[@role='dialog'][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'temporarily blocked')]",
-                    
-                    # Fallback: Look for buttons that appear in this modal (only if in dialog)
-                    "//div[@role='dialog']//button[contains(text(), 'OK')]",
-                    "//div[@role='dialog']//button[contains(text(), 'Report a problem')]",
-                    
-                    # Generic fallback - only if it contains the main text variations
-                    "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'action blocked')]"
-                ]
-                
-                for selector in modal_selectors:
-                    try:
-                        element = wait.until(EC.presence_of_element_located((By.XPATH, selector)))
-                        if element and element.is_displayed():
-                            logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via WebDriverWait with selector: {selector}")
-                            logger.error(f"Profile No.{self.profile_id}: Element text: {element.text[:200]}")
-                            self.is_follow_blocked = True
-                            logger.error(f"Profile No.{self.profile_id}: Setting is_follow_blocked = True")
-                            update_airtable_status(self.profile_id, 'Follow Block')
-                            # Update local profile status for dashboard
-                            self._update_local_profile_status()
-                            return True
-                    except TimeoutException:
-                        continue
-                    except Exception as e:
-                        logger.debug(f"Profile No.{self.profile_id}: Error with WebDriverWait selector {selector}: {str(e)[:50]}")
-                        continue
-                        
-            except Exception as e:
-                logger.debug(f"Profile No.{self.profile_id}: WebDriverWait failed: {str(e)[:50]}")
-
-            # Enhanced fallback: Check page source for modal text with more variations
-            page_source = self.driver.page_source.lower()
-            modal_indicators = [
-                # Primary indicators from actual Instagram modal
-                "try again later",
-                "try again",
-                "we limit how often you can do certain things on instagram",
-                "like following people, to protect our community",
-                "report a problem",
-                "action blocked",
-                "temporarily blocked",
-                "follow limit",
-                "too many actions",
-                "please wait",
-                "try again in a few minutes",
-                "action temporarily blocked",
-                "we've limited how often you can do certain things",
-                "to protect our community",
-                "you're temporarily blocked",
-                "temporary block"
-            ]
-
-            # Check for multiple variations of the main text
-            main_text_variations = [
-                "try again later",
-                "try again",
-                "action blocked",
-                "temporarily blocked"
-            ]
-
-            # Check if we have any main indicator
-            found_main_indicators = 0
-            for variation in main_text_variations:
-                if variation in page_source:
-                    found_main_indicators += 1
-
-            # Check for supporting indicators
-            found_supporting_indicators = 0
-            for indicator in modal_indicators:
-                if indicator in page_source:
-                    found_supporting_indicators += 1
-
-            # More flexible detection: main text OR multiple supporting indicators
-            if found_main_indicators > 0 or found_supporting_indicators >= 2:
-                logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via page content (main: {found_main_indicators}, supporting: {found_supporting_indicators})")
-                
-                # Debug: Log page source snippet instead of saving file
-                try:
-                    page_snippet = self.driver.page_source[:500] + "..." if len(self.driver.page_source) > 500 else self.driver.page_source
-                    logger.error(f"Profile No.{self.profile_id}: Page source snippet: {page_snippet}")
-                except Exception as e:
-                    logger.error(f"Profile No.{self.profile_id}: Could not get page source snippet: {e}")
-                
-                self.is_follow_blocked = True
-                logger.error(f"Profile No.{self.profile_id}: Setting is_follow_blocked = True")
-                update_airtable_status(self.profile_id, 'Follow Block')
-                # Update local profile status for dashboard
-                self._update_local_profile_status()
-                return True
-
-            # Additional wait for dynamic content and final comprehensive check
-            time.sleep(1.0)  # Additional wait for dynamic content
-            
-            # Final comprehensive check using multiple strategies
-            try:
-                # Strategy 1: Check for any heading with variations
-                heading_selectors = [
-                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//h2[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//h3[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again later')]",
-                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'action blocked')]",
-                    "//h2[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'action blocked')]",
-                    "//h3[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'action blocked')]"
-                ]
-                
-                for selector in heading_selectors:
-                    try:
-                        element = self.driver.find_element(By.XPATH, selector)
-                        if element and element.is_displayed():
-                            logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via final heading check: {selector}")
-                            self.is_follow_blocked = True
-                            update_airtable_status(self.profile_id, 'Follow Block')
-                            self._update_local_profile_status()
-                            return True
-                    except NoSuchElementException:
-                        continue
-                    except Exception as e:
-                        logger.debug(f"Profile No.{self.profile_id}: Error in final heading check: {str(e)[:50]}")
-                        continue
-                        
-            except Exception as e:
-                logger.debug(f"Profile No.{self.profile_id}: Error in final comprehensive check: {str(e)[:50]}")
-            
-            # Additional final check for dialog structure
-            try:
-                element = self.driver.find_element(By.XPATH, "//div[@role='dialog'][contains(., 'Try Again Later')]")
-                if element and element.is_displayed():
-                    logger.error(f"Profile No.{self.profile_id}: Follow restriction modal detected via dialog final check")
-                    self.is_follow_blocked = True
-                    update_airtable_status(self.profile_id, 'Follow Block')
-                    self._update_local_profile_status()
-                    return True
-            except NoSuchElementException:
-                pass
-            except Exception as e:
-                logger.debug(f"Profile No.{self.profile_id}: Error in dialog final check: {str(e)[:50]}")
-
-            logger.debug(f"Profile No.{self.profile_id}: No follow restriction modal found")
-            return False
-
-        except Exception as e:
-            logger.warning(f"Profile No.{self.profile_id}: Error checking for follow restriction modal: {str(e)[:100]}...")
-            return False
-
     def check_for_follow_block(self):
         """Check if the account has received a follow block"""
         try:
@@ -1187,9 +925,6 @@ class InstagramFollowBot:
                 logger.warning(f"Profile No.{self.profile_id}: Cannot check for follow block - browser unavailable")
                 return False  # Don't treat window issues as follow blocks
 
-            # First check for the specific follow restriction modal
-            if self.check_for_follow_restriction_modal():
-                return True
 
             current_url = self.driver.current_url
             page_source = self.driver.page_source.lower()
@@ -1305,27 +1040,8 @@ class InstagramFollowBot:
                 follow_button.click()
                 logger.info(f"Profile No.{self.profile_id}: Clicked follow button for {username}")
 
-                # Check for follow restriction modal after clicking (skip in test mode)
-                time.sleep(0.5)  # Reduced wait time
-                if not self.is_test_mode:
-                    if self.check_for_follow_restriction_modal():
-                        logger.error(f"Profile No.{self.profile_id}: Follow restriction modal appeared after clicking follow for {username}")
-                        self.is_follow_blocked = True
-                        # Update local profile status immediately
-                        self._update_local_profile_status()
-                        return False
-                    
-                    # Additional check after 2 seconds
-                    time.sleep(1.0)
-                    if self.check_for_follow_restriction_modal():
-                        logger.error(f"Profile No.{self.profile_id}: Follow restriction modal appeared 2 seconds after clicking follow for {username}")
-                        self.is_follow_blocked = True
-                        # Update local profile status immediately
-                        self._update_local_profile_status()
-                        return False
-                else:
-                    logger.info(f"Profile No.{self.profile_id}: TEST MODE - Skipping follow restriction modal checks after clicking follow")
-                    time.sleep(1.5)  # Still wait for page to load
+                # Wait for page to load after clicking follow
+                time.sleep(1.5)
 
                 # ENHANCED: Check if follow action was successful with new public account follow block detection
                 follow_success = self.check_follow_action_success(username, max_wait_time=follow_check_timeout)
@@ -1451,8 +1167,6 @@ class InstagramFollowBot:
                 results['follow_block_stopped'] = True
                 break
 
-            # Removed: Additional check for follow restriction modal at the start of each loop
-            # This was causing performance issues - modal check is already done in follow_user()
 
             # Check if we've reached the maximum number of follows
             if max_follows and follow_count >= max_follows:
@@ -1619,7 +1333,6 @@ def run_single_profile(profile_number, delay_range, fast_mode, max_follows_per_p
 if __name__ == "__main__":
     print("=" * 60)
     print("MULTI-PROFILE INSTAGRAM FOLLOW BOT WITH ENHANCED FOLLOW BLOCK DETECTION")
-    print("INCLUDING 'TRY AGAIN LATER' MODAL DETECTION")
     print("=" * 60)
 
     # Load profiles from file
@@ -1696,7 +1409,6 @@ if __name__ == "__main__":
     print(f"- Page load wait: {delay_config.get('page_load_wait', [0.5, 2])} seconds")
     print(f"- Follow check timeout: {delay_config.get('follow_check_timeout', 8)} seconds")
     print(f"- NEW: Enhanced follow block detection for public accounts showing 'Requested'")
-    print(f"- NEW: 'Try Again Later' modal detection for follow restrictions")
 
     # Ask for confirmation
     print("\n" + "=" * 50)
@@ -1789,12 +1501,10 @@ if __name__ == "__main__":
     print("=" * 60)
     print("ENHANCED FOLLOW BLOCK DETECTION FEATURES:")
     print("✅ Traditional follow block detection (Action Blocked, etc.)")
-    print("✅ NEW: 'Try Again Later' modal detection")
     print("✅ NEW: Public account 'Requested' button detection")
     print("✅ Private account 'Requested' button (normal behavior)")
     print("✅ Automatic Airtable status updates")
     print("✅ Multiple detection points for maximum accuracy")
     print("✅ Smart public/private account differentiation")
-    print("✅ Modal detection at multiple checkpoints")
     print("=" * 60)
     input("\nPress Enter to exit...")

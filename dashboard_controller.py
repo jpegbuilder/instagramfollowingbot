@@ -1500,19 +1500,6 @@ class ProfileRunner:
                 bot.stop_profile()
                 return
 
-            # Check for follow restriction modal immediately after navigation
-            # Skip this check in test mode to allow testing
-            if max_follows != 1:  # Only check in normal mode, not test mode
-                logger.info(f"Profile {pid}: Checking for follow restriction modal after navigation...")
-                if bot.check_for_follow_restriction_modal():
-                    logger.error(f"Profile {pid}: Follow restriction modal detected after navigation - updating Airtable")
-                    with profiles_lock:
-                        profiles[key]['status'] = 'Blocked'
-                    StatusManager.mark_profile_blocked(pid)
-                    bot.stop_profile()
-                    return
-            else:
-                logger.info(f"Profile {pid}: TEST MODE - Skipping follow restriction modal check after navigation")
 
             # Follow loop
             follows_this_hour = 0
