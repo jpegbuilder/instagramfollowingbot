@@ -30,6 +30,15 @@ except ImportError:
     AIRTABLE_AVAILABLE = False
     logging.warning("pyairtable not installed. Install with: pip install pyairtable")
 
+# Remaining targets calculation
+try:
+    import requests
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    REMAINING_TARGETS_AVAILABLE = True
+except ImportError:
+    REMAINING_TARGETS_AVAILABLE = False
+    logging.warning("Required modules for remaining targets calculation not available")
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -91,6 +100,293 @@ def update_airtable_status(profile_number, status):
     except Exception as e:
         logger.error(f"Profile {profile_number}: Error updating Airtable status to '{status}': {str(e)}")
         return False
+
+
+def count_lines_in_file(url: str) -> int:
+    """Download and count non-empty lines in a text file"""
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        text = response.text
+        lines = [line for line in text.split('\n') if line.strip()]
+        return len(lines)
+    except Exception:
+        return 0
+
+
+def calculate_remaining_targets(profile_number):
+    """Calculate remaining targets for a specific profile using high-performance method"""
+    if not AIRTABLE_AVAILABLE or not REMAINING_TARGETS_AVAILABLE:
+        logger.warning(f"Profile {profile_number}: Cannot calculate remaining targets - dependencies not available")
+        return False
+
+    try:
+        api = Api(AIRTABLE_PERSONAL_ACCESS_TOKEN)
+        table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+
+        # Find the profile record
+        records = table.all(formula=f"{{Profile}} = {profile_number}")
+
+        if not records:
+            logger.warning(f"Profile {profile_number}: Profile not found in Airtable for remaining targets calculation")
+            return False
+
+        record = records[0]
+        fields = record.get('fields', {})
+        
+        # Debug: Log all available fields
+        logger.info(f"Profile {profile_number}: Available fields in record: {list(fields.keys())}")
+        
+        # Get attachments from Targets and Already Followed fields
+        targets_attachments = fields.get('Targets', [])
+        already_followed_attachments = fields.get('Already Followed', [])
+        
+        # Debug: Log field values
+        logger.info(f"Profile {profile_number}: Targets field value: {targets_attachments}")
+        logger.info(f"Profile {profile_number}: Already Followed field value: {already_followed_attachments}")
+        
+        if not targets_attachments:
+            logger.info(f"Profile {profile_number}: No targets file found, skipping remaining targets calculation")
+            return True
+        
+        # Use high-performance concurrent processing from remaining_targets.py
+        targets_count, already_followed_count = download_files_concurrent_enhanced(
+            targets_attachments, already_followed_attachments
+        )
+        
+        # Calculate remaining targets
+        remaining_targets = targets_count - already_followed_count
+        
+        # Update the record with remaining targets
+        record_id = record['id']
+        update_data = {'Remaining Targets': remaining_targets}
+        
+        logger.info(f"Profile {profile_number}: Attempting to update record {record_id} with data: {update_data}")
+        
+        try:
+            result = table.update(record_id, update_data)
+            logger.info(f"Profile {profile_number}: Update result: {result}")
+            logger.info(f"Profile {profile_number}: Updated remaining targets to {remaining_targets} (Targets: {targets_count}, Already Followed: {already_followed_count})")
+            return True
+        except Exception as update_error:
+            logger.error(f"Profile {profile_number}: Failed to update Remaining Targets field: {update_error}")
+            
+            # Try alternative field names
+            alternative_names = ['remaining_targets', 'RemainingTargets', 'remaining targets', 'Remaining']
+            for alt_name in alternative_names:
+                try:
+                    alt_update_data = {alt_name: remaining_targets}
+                    logger.info(f"Profile {profile_number}: Trying alternative field name '{alt_name}' with data: {alt_update_data}")
+                    result = table.update(record_id, alt_update_data)
+                    logger.info(f"Profile {profile_number}: Successfully updated using field name '{alt_name}': {result}")
+                    return True
+                except Exception as alt_error:
+                    logger.warning(f"Profile {profile_number}: Alternative field name '{alt_name}' also failed: {alt_error}")
+                    continue
+            
+            return False
+
+    except Exception as e:
+        logger.error(f"Profile {profile_number}: Error calculating remaining targets: {str(e)}")
+        return False
+
+
+def download_files_concurrent_enhanced(targets_attachments, already_followed_attachments):
+    """Download all files for a record concurrently - enhanced version from remaining_targets.py
+    Returns (targets_count, already_followed_count)
+    Counts lines from ALL attachments in each field
+    """
+    targets_count = 0
+    already_followed_count = 0
+    
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {}
+        
+        # Submit all target files for download
+        for attachment in targets_attachments:
+            url = attachment['url']
+            future = executor.submit(count_lines_in_file, url)
+            futures[future] = ('targets', attachment.get('filename', 'unknown'))
+        
+        # Submit all already followed files for download
+        for attachment in already_followed_attachments:
+            url = attachment['url']
+            future = executor.submit(count_lines_in_file, url)
+            futures[future] = ('already_followed', attachment.get('filename', 'unknown'))
+        
+        # Collect results from all files
+        for future in as_completed(futures):
+            file_type, filename = futures[future]
+            count = future.result()
+            
+            if file_type == 'targets':
+                targets_count += count
+            else:
+                already_followed_count += count
+    
+    return targets_count, already_followed_count
+
+
+def add_to_already_followed(profile_number, username):
+    """Add username to Already Followed txt file in Airtable"""
+    if not AIRTABLE_AVAILABLE:
+        logger.warning(f"Profile {profile_number}: Airtable not available, cannot add {username} to Already Followed")
+        return False
+
+    try:
+        api = Api(AIRTABLE_PERSONAL_ACCESS_TOKEN)
+        table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+
+        # Find the profile record
+        records = table.all(formula=f"{{Profile}} = {profile_number}")
+
+        if not records:
+            logger.warning(f"Profile {profile_number}: Profile not found in Airtable for adding to Already Followed")
+            return False
+
+        record = records[0]
+        fields = record.get('fields', {})
+        
+        # Get current Already Followed attachments (txt files)
+        already_followed_attachments = fields.get('Already Followed', [])
+        
+        # Download current usernames from txt files
+        current_usernames = set()
+        if already_followed_attachments:
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = []
+                for attachment in already_followed_attachments:
+                    url = attachment['url']
+                    future = executor.submit(download_and_parse_usernames, url)
+                    futures.append(future)
+                
+                for future in as_completed(futures):
+                    usernames = future.result()
+                    current_usernames.update(usernames)
+        
+        # Add new username if not already present
+        if username not in current_usernames:
+            current_usernames.add(username)
+            
+            # Create new txt file content
+            new_content = '\n'.join(sorted(current_usernames))
+            
+            # Upload new file to Airtable
+            file_upload_success = upload_txt_file_to_airtable(table, record['id'], new_content, 'Already Followed')
+            
+            if file_upload_success:
+                logger.info(f"Profile {profile_number}: Added {username} to Already Followed file")
+                
+                # Recalculate remaining targets after updating Already Followed
+                logger.info(f"Profile {profile_number}: Recalculating remaining targets...")
+                calculate_remaining_targets(profile_number)
+                return True
+            else:
+                logger.error(f"Profile {profile_number}: Failed to upload updated Already Followed file")
+                return False
+        else:
+            logger.info(f"Profile {profile_number}: {username} already in Already Followed file")
+            return True
+
+    except Exception as e:
+        logger.error(f"Profile {profile_number}: Error adding {username} to Already Followed: {str(e)}")
+        return False
+
+
+def download_and_parse_usernames(url: str) -> set:
+    """Download txt file and parse usernames from it"""
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        text = response.text
+        usernames = {line.strip() for line in text.split('\n') if line.strip()}
+        return usernames
+    except Exception as e:
+        logger.warning(f"Error downloading/parsing usernames from {url}: {str(e)}")
+        return set()
+
+
+def upload_txt_file_to_airtable(table, record_id, content, field_name):
+    """Upload txt file content to Airtable field using direct file upload"""
+    try:
+        import tempfile
+        import os
+        
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as temp_file:
+            temp_file.write(content)
+            temp_file_path = temp_file.name
+        
+        try:
+            # Update record with file attachment using file:// URL
+            result = table.update(record_id, {
+                field_name: [{
+                    'url': f'file://{temp_file_path}',
+                    'filename': f'already_followed_{int(time.time())}.txt'
+                }]
+            })
+            
+            return True
+            
+        finally:
+            # Clean up temporary file
+            os.unlink(temp_file_path)
+            
+    except Exception as e:
+        logger.error(f"Error uploading txt file to Airtable: {str(e)}")
+        return False
+
+
+def sync_remaining_targets_on_shutdown(profile_number):
+    """Sync Remaining Targets field in Airtable when bot shuts down"""
+    if not AIRTABLE_AVAILABLE:
+        logger.warning(f"Profile {profile_number}: Airtable not available, cannot sync remaining targets on shutdown")
+        return False
+
+    try:
+        logger.info(f"Profile {profile_number}: Syncing Remaining Targets on shutdown...")
+        
+        # Calculate and update remaining targets
+        result = calculate_remaining_targets(profile_number)
+        
+        if result:
+            logger.info(f"Profile {profile_number}: ✅ Successfully synced Remaining Targets on shutdown")
+        else:
+            logger.warning(f"Profile {profile_number}: ⚠️ Failed to sync Remaining Targets on shutdown")
+        
+        return result
+
+    except Exception as e:
+        logger.error(f"Profile {profile_number}: Error syncing remaining targets on shutdown: {str(e)}")
+        return False
+
+
+def sync_all_profiles_remaining_targets(profile_numbers):
+    """Sync Remaining Targets for all profiles"""
+    if not AIRTABLE_AVAILABLE:
+        logger.warning("Airtable not available, cannot sync remaining targets for all profiles")
+        return False
+
+    logger.info(f"🔄 Syncing Remaining Targets for {len(profile_numbers)} profiles...")
+    
+    success_count = 0
+    failed_count = 0
+    
+    for profile_number in profile_numbers:
+        try:
+            result = sync_remaining_targets_on_shutdown(profile_number)
+            if result:
+                success_count += 1
+            else:
+                failed_count += 1
+        except Exception as e:
+            logger.error(f"Profile {profile_number}: Error during sync: {str(e)}")
+            failed_count += 1
+    
+    logger.info(f"📊 Sync completed: {success_count} successful, {failed_count} failed")
+    return success_count > 0
 
 
 class InstagramFollowBot:
@@ -1051,6 +1347,10 @@ class InstagramFollowBot:
                     self.consecutive_follow_errors = 0  # Reset error counter on success
                     self.consecutive_follow_blocks = 0  # Reset block counter on success
 
+                    # Add username to Already Followed field and recalculate remaining targets
+                    logger.info(f"Profile No.{self.profile_id}: Adding {username} to Already Followed and updating Remaining Targets...")
+                    add_to_already_followed(self.profile_id, username)
+
                     # Minimal delay after successful follow
                     if fast_mode:
                         time.sleep(0.2)
@@ -1256,6 +1556,13 @@ class InstagramFollowBot:
         finally:
             # Always stop the profile
             self.stop_profile()
+            
+            # Sync Remaining Targets on shutdown
+            try:
+                logger.info(f"Profile No.{self.profile_id}: Performing final sync of Remaining Targets...")
+                sync_remaining_targets_on_shutdown(self.profile_id)
+            except Exception as e:
+                logger.error(f"Profile No.{self.profile_id}: Error during final sync: {str(e)}")
 
 
 def load_profiles_from_file(filename="adspowerprofiles.txt"):
@@ -1498,6 +1805,12 @@ if __name__ == "__main__":
     remaining_usernames = check_usernames_file("usernames.txt")
     print(f"Remaining usernames in file: {remaining_usernames}")
 
+    # Final sync of Remaining Targets for all profiles
+    print("\n" + "=" * 60)
+    print("FINAL SYNC OF REMAINING TARGETS")
+    print("=" * 60)
+    sync_all_profiles_remaining_targets(profile_numbers)
+
     print("=" * 60)
     print("ENHANCED FOLLOW BLOCK DETECTION FEATURES:")
     print("✅ Traditional follow block detection (Action Blocked, etc.)")
@@ -1506,5 +1819,6 @@ if __name__ == "__main__":
     print("✅ Automatic Airtable status updates")
     print("✅ Multiple detection points for maximum accuracy")
     print("✅ Smart public/private account differentiation")
+    print("✅ Automatic Remaining Targets sync on shutdown")
     print("=" * 60)
     input("\nPress Enter to exit...")

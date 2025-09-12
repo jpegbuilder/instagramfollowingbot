@@ -2395,15 +2395,15 @@
     "total_all_time": 17
   },
   "k144inj3": {
-    "last_run": 5,
+    "last_run": 1,
     "today": {
       "2025-09-10": 35,
-      "2025-09-12": 6
+      "2025-09-12": 8
     },
-    "total_all_time": 41
+    "total_all_time": 43
   },
   "k144inja": {
-    "last_run": 2,
+    "last_run": 0,
     "today": {
       "2025-09-10": 4,
       "2025-09-12": 3
@@ -2422,9 +2422,9 @@
     "last_run": 1,
     "today": {
       "2025-09-10": 49,
-      "2025-09-12": 1
+      "2025-09-12": 2
     },
-    "total_all_time": 50
+    "total_all_time": 51
   },
   "k144injl": {
     "last_run": 3,
@@ -2452,7 +2452,7 @@
     "total_all_time": 52
   },
   "k144injr": {
-    "last_run": 1,
+    "last_run": 0,
     "today": {
       "2025-09-10": 51,
       "2025-09-12": 1
@@ -2460,12 +2460,12 @@
     "total_all_time": 52
   },
   "k144injs": {
-    "last_run": 1,
+    "last_run": 4,
     "today": {
       "2025-09-10": 10,
-      "2025-09-12": 1
+      "2025-09-12": 5
     },
-    "total_all_time": 11
+    "total_all_time": 15
   },
   "k144init": {
     "last_run": 0,
@@ -2497,19 +2497,19 @@
     "total_all_time": 28
   },
   "k144inj2": {
-    "last_run": 7,
-    "today": {
-      "2025-09-11": 17,
-      "2025-09-12": 8
-    },
-    "total_all_time": 25
-  },
-  "k144injx": {
     "last_run": 1,
     "today": {
-      "2025-09-12": 1
+      "2025-09-11": 17,
+      "2025-09-12": 14
     },
-    "total_all_time": 1
+    "total_all_time": 31
+  },
+  "k144injx": {
+    "last_run": 7,
+    "today": {
+      "2025-09-12": 19
+    },
+    "total_all_time": 19
   },
   "k144ink2": {
     "last_run": 0,
@@ -2617,11 +2617,11 @@
     "total_all_time": 91
   },
   "k144inky": {
-    "last_run": 74,
+    "last_run": 1,
     "today": {
-      "2025-09-12": 75
+      "2025-09-12": 76
     },
-    "total_all_time": 75
+    "total_all_time": 76
   },
   "k144inl2": {
     "last_run": 1,
@@ -2636,8 +2636,10 @@
     "total_all_time": 0
   },
   "k144injy": {
-    "last_run": 0,
-    "today": {},
-    "total_all_time": 0
+    "last_run": 1,
+    "today": {
+      "2025-09-12": 1
+    },
+    "total_all_time": 1
   }
 }
