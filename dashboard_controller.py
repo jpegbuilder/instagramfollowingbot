@@ -1832,6 +1832,11 @@ class ProfileRunner:
         with profiles_lock:
             if key in profiles:
                 airtable_status = profiles[key].get('airtable_status', 'Alive')
+                # Convert array to string if needed (Airtable multi-select fields)
+                if isinstance(airtable_status, list):
+                    airtable_status = airtable_status[0] if airtable_status else 'Alive'
+                
+                # Only block if status is Follow Block or Suspended
                 if airtable_status == 'Follow Block' or airtable_status == 'Suspended':
                     logger.info(f"Profile {pid} (key: {key}) is {airtable_status} in Airtable")
                     return False
@@ -2052,7 +2057,12 @@ def start_all_profiles_backend(vps_filter='all', phase_filter='all', batch_filte
 
                     # Check Airtable status has priority
                     airtable_status = info.get('airtable_status', 'Alive')
-                    if airtable_status == 'Alive':
+                    # Convert array to string if needed (Airtable multi-select fields)
+                    if isinstance(airtable_status, list):
+                        airtable_status = airtable_status[0] if airtable_status else 'Alive'
+                    
+                    # Include profiles that are Alive or Logged In (not blocked/suspended)
+                    if airtable_status in ['Alive', 'Logged In ⭐️']:
                         # Check if not already running
                         thread = info.get('thread')
                         if thread is None or not thread.is_alive():
@@ -2245,7 +2255,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     airtable_status = airtable_status[0] if airtable_status else 'Alive'
                 
                 # Check if Airtable status indicates the profile is alive
-                if airtable_status == 'Alive':
+                if airtable_status in ['Alive', 'Logged In ⭐️']:
                     # Even if locally marked as blocked/suspended, show current running status
                     display_status = info['status']
                 elif airtable_status == 'Follow Block':
