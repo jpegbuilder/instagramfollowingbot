@@ -49,7 +49,7 @@ PORT = 8080
 STATS_FILE = 'profile_stats.json'
 STATUS_FILE = 'profile_status.json'
 CONFIG_FILE = 'config.json'
-MAX_CONCURRENT_PROFILES = 100
+MAX_CONCURRENT_PROFILES = 1000
 
 # Global state with thread-safe access
 profiles = {}
