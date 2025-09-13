@@ -2064,7 +2064,15 @@ def start_all_profiles_backend(vps_filter='all', phase_filter='all', batch_filte
 
             # SORT PROFILES BY ID (NUMERICALLY) TO START FROM LOWEST TO HIGHEST
             # This matches the dashboard display order
-            alive_profiles.sort(key=lambda x: int(x))
+            def get_sort_key(pid):
+                try:
+                    # Try to convert to int for numeric sorting
+                    return int(pid)
+                except (ValueError, TypeError):
+                    # If can't convert to int, use string sorting
+                    return pid
+            
+            alive_profiles.sort(key=get_sort_key)
 
             logger.info(f"Starting {len(alive_profiles)} profiles in order: {alive_profiles[:5]}...")
 
@@ -2481,7 +2489,7 @@ def run():
 
     # Start server
     try:
-        httpd = ThreadingHTTPServer(('', PORT), DashboardHandler)
+        httpd = ThreadingHTTPServer(('0.0.0.0', PORT), DashboardHandler)
         logger.info(f"Server started successfully on port {PORT}")
         httpd.serve_forever()
     except KeyboardInterrupt:
