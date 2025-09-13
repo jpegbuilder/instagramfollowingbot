@@ -870,6 +870,12 @@ class StatusManager:
 
             # Update Airtable asynchronously (only if we have a profile_number)
             if profile_number:
+                # First remove Follow Block status, then add Alive
+                airtable_executor.submit(
+                    AirtableManager.remove_profile_status,
+                    profile_number,
+                    'Follow Block'
+                )
                 airtable_executor.submit(
                     AirtableManager.update_profile_status,
                     profile_number,
@@ -968,7 +974,7 @@ class AirtableManager:
 
     @staticmethod
     def update_profile_status(profile_number, status):
-        """Update profile status in Airtable with retry logic"""
+        """Update profile status in Airtable with retry logic - adds new status to existing ones (multi-select field)"""
         if not AIRTABLE_AVAILABLE:
             return False
 
@@ -986,9 +992,25 @@ class AirtableManager:
 
                 if records:
                     record_id = records[0]['id']
-                    update_data = {'Status': [status]}
+                    current_record = records[0]
+                    
+                    # Get current statuses (multi-select field)
+                    current_statuses = current_record.get('fields', {}).get('Status', [])
+                    
+                    # Convert to list if it's not already
+                    if not isinstance(current_statuses, list):
+                        current_statuses = [current_statuses] if current_statuses else []
+                    
+                    # Add new status if it's not already present
+                    if status not in current_statuses:
+                        current_statuses.append(status)
+                        logger.info(f"Profile {profile_number}: Adding new status '{status}' to existing statuses: {current_statuses}")
+                    else:
+                        logger.info(f"Profile {profile_number}: Status '{status}' already exists, keeping current statuses: {current_statuses}")
+                    
+                    update_data = {'Status': current_statuses}
                     result = table.update(record_id, update_data)
-                    logger.info(f"✅ Updated profile {profile_number} status to '{status}' in Airtable")
+                    logger.info(f"✅ Updated profile {profile_number} statuses to: {current_statuses}")
                     return True
                 else:
                     logger.warning(f"❌ Profile {profile_number} not found in Airtable")
@@ -996,6 +1018,59 @@ class AirtableManager:
 
             except Exception as e:
                 logger.error(f"❌ Error updating profile {profile_number} status: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    return False
+
+    @staticmethod
+    def remove_profile_status(profile_number, status):
+        """Remove a specific status from Airtable multi-select field"""
+        if not AIRTABLE_AVAILABLE:
+            return False
+
+        max_retries = 2
+        retry_delay = 1
+
+        for attempt in range(max_retries):
+            try:
+                AirtableManager._rate_limit()
+
+                api = AirtableManager._get_api()
+                table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+
+                records = table.all(formula=f"{{Profile}} = {profile_number}")
+
+                if records:
+                    record_id = records[0]['id']
+                    current_record = records[0]
+                    
+                    # Get current statuses (multi-select field)
+                    current_statuses = current_record.get('fields', {}).get('Status', [])
+                    
+                    # Convert to list if it's not already
+                    if not isinstance(current_statuses, list):
+                        current_statuses = [current_statuses] if current_statuses else []
+                    
+                    # Remove status if it exists
+                    if status in current_statuses:
+                        current_statuses.remove(status)
+                        logger.info(f"Profile {profile_number}: Removed status '{status}', remaining statuses: {current_statuses}")
+                    else:
+                        logger.info(f"Profile {profile_number}: Status '{status}' not found in current statuses: {current_statuses}")
+                        return True  # Status not present, consider it successful
+                    
+                    update_data = {'Status': current_statuses}
+                    result = table.update(record_id, update_data)
+                    logger.info(f"✅ Removed status '{status}' from profile {profile_number}, remaining statuses: {current_statuses}")
+                    return True
+                else:
+                    logger.warning(f"❌ Profile {profile_number} not found in Airtable")
+                    return False
+
+            except Exception as e:
+                logger.error(f"❌ Error removing status '{status}' from profile {profile_number}: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
                     retry_delay *= 2
