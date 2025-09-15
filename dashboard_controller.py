@@ -242,6 +242,9 @@ def get_profile_name(pid):
         # First try AdsPower profile name
         if profiles[key].get('adspower_name'):
             return profiles[key]['adspower_name']
+        # For new profiles, create "Melina ####" format using profile_number
+        elif profiles[key].get('profile_number'):
+            return f"Melina {profiles[key]['profile_number']}"
         # Fallback to username
         elif profiles[key].get('username'):
             return profiles[key]['username']
@@ -1520,14 +1523,26 @@ class ProfileRunner:
         hourly_reset_break = delay_config.get('hourly_reset_break', [600, 1200])
         max_follows_per_hour = limits_config.get('max_follows_per_hour', 35)
 
-        # Get the AdsPower serial number for this profile
+        # Get the AdsPower ID and serial number for this profile
+        adspower_id = None
         adspower_serial = None
         with profiles_lock:
             if key in profiles:
+                adspower_id = profiles[key].get('adspower_id')
                 adspower_serial = profiles[key].get('adspower_serial')
         
-        # Use AdsPower serial number if available, otherwise fall back to pid
-        bot_profile_id = adspower_serial if adspower_serial else pid
+        logger.info(f"Profile {pid}: adspower_id={adspower_id}, adspower_serial={adspower_serial}")
+        
+        # Use AdsPower serial number if available and valid, otherwise use adspower_id, otherwise fall back to pid
+        if adspower_serial and adspower_serial.isdigit():
+            bot_profile_id = adspower_serial
+            logger.info(f"Profile {pid}: Using serial_number {bot_profile_id}")
+        elif adspower_id:
+            bot_profile_id = adspower_id
+            logger.info(f"Profile {pid}: Using adspower_id {bot_profile_id}")
+        else:
+            bot_profile_id = pid
+            logger.info(f"Profile {pid}: Using pid {bot_profile_id}")
         bot = InstagramFollowBot(profile_id=bot_profile_id)
         
         # Set test mode flag for the bot

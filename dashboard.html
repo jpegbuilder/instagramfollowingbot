@@ -1854,7 +1854,7 @@
                                    onclick="toggleProfileSelection('${pid}', event)"
                                    ${isSelected ? 'checked' : ''}>
                             <div class="profile-header">
-                                <div class="profile-id">${profile.adspower_name || profile.username || `Profile ${pid}`}</div>
+                                <div class="profile-id">${profile.adspower_name || (profile.profile_number ? `Melina ${profile.profile_number}` : profile.username) || `Profile ${pid}`}</div>
                                 <div class="status ${profile.status.toLowerCase().replace(' ', '-')}">${profile.status}</div>
                             </div>
                             <div class="profile-info">
@@ -1975,7 +1975,7 @@
                                    onclick="toggleProfileSelection('${pid}', event)"
                                    ${isSelected ? 'checked' : ''}>
                             <div class="profile-header">
-                                <div class="profile-id">${profile.adspower_name || profile.username || `Profile ${pid}`}</div>
+                                <div class="profile-id">${profile.adspower_name || (profile.profile_number ? `Melina ${profile.profile_number}` : profile.username) || `Profile ${pid}`}</div>
                                 <div class="status ${profile.status.toLowerCase().replace(' ', '-')}">${profile.status}</div>
                             </div>
                             <div class="profile-info">
