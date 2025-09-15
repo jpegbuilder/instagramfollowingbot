@@ -242,12 +242,12 @@ def get_profile_name(pid):
         # First try AdsPower profile name
         if profiles[key].get('adspower_name'):
             return profiles[key]['adspower_name']
-        # For new profiles, create "Melina ####" format using profile_number
-        elif profiles[key].get('profile_number'):
-            return f"Melina {profiles[key]['profile_number']}"
         # Fallback to username
         elif profiles[key].get('username'):
             return profiles[key]['username']
+        # For profiles without AdsPower name, try to create a proper name
+        elif profiles[key].get('profile_number'):
+            return f"Melina {profiles[key]['profile_number']}"
     return f"Profile {pid}"
 
 
@@ -1230,7 +1230,7 @@ class AirtableManager:
                 
                 # Create directory for followers files
                 import os
-                followers_dir = os.path.join(os.path.dirname(__file__), 'assigned_followers')
+                followers_dir = os.path.join(os.getcwd(), 'assigned_followers')
                 if not os.path.exists(followers_dir):
                     os.makedirs(followers_dir)
                 
@@ -1310,6 +1310,10 @@ class AirtableManager:
                     profile_info = adspower_names[str(adspower_id)]
                     adspower_name = profile_info.get('name')
                     adspower_serial = profile_info.get('serial_number')
+                elif not adspower_id and profile_number:
+                    # For profiles without AdsPower ID, use profile_number as serial
+                    adspower_serial = str(profile_number)
+                    adspower_name = f"Melina {profile_number}"
 
                 if 'Status' in record['fields']:
                     airtable_status = record['fields']['Status']
@@ -1323,7 +1327,7 @@ class AirtableManager:
                 if 'Batch' in record['fields']:
                     batch = record['fields']['Batch']
 
-                if profile_number and adspower_id:  # Only include profiles with AdsPower IDs
+                if profile_number:  # Include all profiles with profile numbers
                     # Get assigned IG data if available
                     assigned_followers_file = None
                     assigned_ig_ids = record_data.get('assigned_ig_ids', [])
@@ -1335,13 +1339,16 @@ class AirtableManager:
                             assigned_followers_file = linked_data.get('followers_file')
                     
                     # Use AdsPower ID as the primary ID
+                    # Use profile_number as primary key if no AdsPower ID
+                    primary_id = str(adspower_id) if adspower_id else f"profile_{profile_number}"
+                    
                     profile_data = {
-                        'id': str(adspower_id),  # Use AdsPower ID as primary key
+                        'id': primary_id,  # Use AdsPower ID or profile_number as primary key
                         'profile_number': str(profile_number),
                         'username': username or 'Unknown',
-                        'adspower_name': adspower_name,
+                        'adspower_name': adspower_name or f"Melina {profile_number}",
                         'adspower_id': adspower_id,
-                        'adspower_serial': adspower_serial,
+                        'adspower_serial': adspower_serial or str(profile_number),
                         'airtable_status': airtable_status or 'Alive',
                         'vps_status': vps_status or 'None',
                         'phase': phase or 'None',
@@ -1523,26 +1530,14 @@ class ProfileRunner:
         hourly_reset_break = delay_config.get('hourly_reset_break', [600, 1200])
         max_follows_per_hour = limits_config.get('max_follows_per_hour', 35)
 
-        # Get the AdsPower ID and serial number for this profile
-        adspower_id = None
+        # Get the AdsPower serial number for this profile
         adspower_serial = None
         with profiles_lock:
             if key in profiles:
-                adspower_id = profiles[key].get('adspower_id')
                 adspower_serial = profiles[key].get('adspower_serial')
         
-        logger.info(f"Profile {pid}: adspower_id={adspower_id}, adspower_serial={adspower_serial}")
-        
-        # Use AdsPower serial number if available and valid, otherwise use adspower_id, otherwise fall back to pid
-        if adspower_serial and adspower_serial.isdigit():
-            bot_profile_id = adspower_serial
-            logger.info(f"Profile {pid}: Using serial_number {bot_profile_id}")
-        elif adspower_id:
-            bot_profile_id = adspower_id
-            logger.info(f"Profile {pid}: Using adspower_id {bot_profile_id}")
-        else:
-            bot_profile_id = pid
-            logger.info(f"Profile {pid}: Using pid {bot_profile_id}")
+        # Use AdsPower serial number if available, otherwise fall back to pid
+        bot_profile_id = adspower_serial if adspower_serial else pid
         bot = InstagramFollowBot(profile_id=bot_profile_id)
         
         # Set test mode flag for the bot
