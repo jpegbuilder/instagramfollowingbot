@@ -189,6 +189,7 @@ class InstagramFollowBot:
         self.window_recovery_attempts = 0
         self.max_window_recovery_attempts = 3
         self.is_test_mode = False  # Flag to indicate test mode
+        self.successful_follows_count = 0  # Track successful follows
 
     def check_adspower_connection(self):
         """Check if AdsPower API is accessible"""
@@ -1125,6 +1126,7 @@ class InstagramFollowBot:
                     logger.info(f"Profile No.{self.profile_id}: ✅ Successfully followed {username}")
                     self.consecutive_follow_errors = 0  # Reset error counter on success
                     self.consecutive_follow_blocks = 0  # Reset block counter on success
+                    self.successful_follows_count += 1  # Increment successful follows counter
 
                     # Minimal delay after successful follow
                     if fast_mode:
