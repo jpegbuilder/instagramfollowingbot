@@ -1285,6 +1285,53 @@ class AirtableManager:
                     return False
 
     @staticmethod
+    def update_total_follows(profile_number, additional_follows):
+        """Update total follows count in Airtable"""
+        if not AIRTABLE_AVAILABLE:
+            return False
+
+        max_retries = 2
+        retry_delay = 1
+
+        for attempt in range(max_retries):
+            try:
+                AirtableManager._rate_limit()
+
+                api = AirtableManager._get_api()
+                table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+
+                records = table.all(formula=f"{{Profile}} = {profile_number}")
+
+                if records:
+                    record_id = records[0]['id']
+                    current_record = records[0]
+                    
+                    # Get current total follows count
+                    current_total = current_record.get('fields', {}).get('Total Follows', 0)
+                    if not isinstance(current_total, (int, float)):
+                        current_total = 0
+                    
+                    # Add new follows to current total
+                    new_total = current_total + additional_follows
+                    
+                    # Update Airtable
+                    update_data = {'Total Follows': new_total}
+                    result = table.update(record_id, update_data)
+                    logger.info(f"✅ Profile {profile_number}: Updated total follows from {current_total} to {new_total} (+{additional_follows})")
+                    return True
+                else:
+                    logger.warning(f"❌ Profile {profile_number} not found in Airtable")
+                    return False
+
+            except Exception as e:
+                logger.error(f"❌ Error updating total follows for profile {profile_number}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    return False
+
+    @staticmethod
     def update_profile_statistics(profile_number, last_run=None, follows_today=None, total_follows=None):
         """Update profile statistics in Airtable"""
         if not AIRTABLE_AVAILABLE:
@@ -1973,6 +2020,31 @@ class ProfileRunner:
                             profile_number
                         )
                         logger.info(f"Profile {pid}: Added 'Logged In ⭐️' status after successful test")
+
+            # Update total follows count in Airtable
+            profile_number = None
+            with profiles_lock:
+                if key in profiles:
+                    profile_number = profiles[key].get('profile_number')
+            
+            if profile_number and bot:
+                # Get successful follows count from bot
+                successful_follows = 0
+                if hasattr(bot, 'successful_follows_count'):
+                    successful_follows = bot.successful_follows_count
+                elif hasattr(bot, 'follow_results') and bot.follow_results:
+                    successful_follows = len(bot.follow_results.get('successful', []))
+                elif hasattr(bot, 'consecutive_follow_errors'):
+                    # Estimate based on max_follows and errors
+                    successful_follows = max(0, max_follows - bot.consecutive_follow_errors)
+                
+                if successful_follows > 0:
+                    airtable_executor.submit(
+                        AirtableManager.update_total_follows,
+                        profile_number,
+                        successful_follows
+                    )
+                    logger.info(f"Profile {pid}: Will update total follows with +{successful_follows} follows")
 
             # Update Airtable
             if profiles[key]['status'] in ['Finished', 'Stopped', 'Blocked', 'Suspended']:
