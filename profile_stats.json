@@ -2692,11 +2692,12 @@
     "total_all_time": 6
   },
   "k144inlg": {
-    "last_run": 0,
+    "last_run": 1,
     "today": {
-      "2025-09-13": 4
+      "2025-09-13": 4,
+      "2025-09-16": 1
     },
-    "total_all_time": 4
+    "total_all_time": 5
   },
   "k144inle": {
     "last_run": 9,
@@ -2722,9 +2723,10 @@
   "k144inlp": {
     "last_run": 1,
     "today": {
-      "2025-09-13": 7
+      "2025-09-13": 7,
+      "2025-09-16": 3
     },
-    "total_all_time": 7
+    "total_all_time": 10
   },
   "k144inlq": {
     "last_run": 0,
@@ -2741,11 +2743,12 @@
     "total_all_time": 56
   },
   "k144inm1": {
-    "last_run": 0,
+    "last_run": 9,
     "today": {
-      "2025-09-13": 49
+      "2025-09-13": 49,
+      "2025-09-16": 9
     },
-    "total_all_time": 49
+    "total_all_time": 58
   },
   "k144inlw": {
     "last_run": 9,
@@ -2762,11 +2765,12 @@
     "total_all_time": 52
   },
   "k144inm6": {
-    "last_run": 1,
+    "last_run": 3,
     "today": {
-      "2025-09-13": 51
+      "2025-09-13": 51,
+      "2025-09-16": 3
     },
-    "total_all_time": 51
+    "total_all_time": 54
   },
   "k144inm9": {
     "last_run": 1,
@@ -2783,11 +2787,12 @@
     "total_all_time": 56
   },
   "k144inmf": {
-    "last_run": 9,
+    "last_run": 1,
     "today": {
-      "2025-09-13": 19
+      "2025-09-13": 19,
+      "2025-09-16": 1
     },
-    "total_all_time": 19
+    "total_all_time": 20
   },
   "k144inmg": {
     "last_run": 6,
@@ -2869,7 +2874,7 @@
     "total_all_time": 0
   },
   "k144indf": {
-    "last_run": 1,
+    "last_run": 0,
     "today": {
       "2025-09-15": 1
     },
@@ -2888,9 +2893,11 @@
     "total_all_time": 0
   },
   "k142jcy1": {
-    "last_run": 0,
-    "today": {},
-    "total_all_time": 0
+    "last_run": 35,
+    "today": {
+      "2025-09-16": 35
+    },
+    "total_all_time": 35
   },
   "k142jcxx": {
     "last_run": 0,
@@ -3195,5 +3202,15 @@
       "2025-09-15": 6
     },
     "total_all_time": 6
+  },
+  "k144inn4": {
+    "last_run": 0,
+    "today": {},
+    "total_all_time": 0
+  },
+  "k144inmi": {
+    "last_run": 0,
+    "today": {},
+    "total_all_time": 0
   }
 }

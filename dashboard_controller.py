@@ -251,6 +251,27 @@ def get_profile_name(pid):
     return f"Profile {pid}"
 
 
+def get_active_profiles_count():
+    """Get count of active profiles in AdsPower"""
+    try:
+        url = f"{ADSPOWER_API_URL}/api/v1/user/list"
+        params = {'page_size': 500}
+        headers = {"api_key": ADSPOWER_API_KEY} if ADSPOWER_API_KEY else {}
+        response = requests.get(url, params=params, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('code') == 0:
+                profiles_list = data.get('data', {}).get('list', [])
+                # Count profiles with status 'Active' or 'Running'
+                active_count = len([p for p in profiles_list if p.get('status') in ['Active', 'Running']])
+                return active_count, len(profiles_list)
+        return 0, 0
+    except Exception as e:
+        logger.error(f"Error getting active profiles count: {e}")
+        return 0, 0
+
+
 class DashboardDataManager:
     """Manages dashboard data by reading directly from sources - no caching"""
 
@@ -1120,6 +1141,150 @@ class AirtableManager:
                     return False
 
     @staticmethod
+    def mark_profile_logged_in(profile_number):
+        """Add 'Logged In ⭐️' status and clean up old problematic statuses when account is working normally"""
+        if not AIRTABLE_AVAILABLE:
+            return False
+
+        max_retries = 2
+        retry_delay = 1
+
+        for attempt in range(max_retries):
+            try:
+                AirtableManager._rate_limit()
+
+                api = AirtableManager._get_api()
+                table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+
+                records = table.all(formula=f"{{Profile}} = {profile_number}")
+
+                if records:
+                    record_id = records[0]['id']
+                    current_record = records[0]
+                    
+                    # Get current statuses (multi-select field)
+                    current_statuses = current_record.get('fields', {}).get('Status', [])
+                    
+                    # Convert to list if it's not already
+                    if not isinstance(current_statuses, list):
+                        current_statuses = [current_statuses] if current_statuses else []
+                    
+                    # Remove old problematic statuses when account is working normally
+                    statuses_to_remove = [
+                        'Follow Block',
+                        'Waiting for Appeal',
+                        'Suspended',
+                        'Banned 🔴',
+                        "Can't Access",
+                        'Something went wrong Checkpoint',
+                        'Wrong Password',
+                        'Bad Proxy'
+                    ]
+                    
+                    removed_statuses = []
+                    for status in statuses_to_remove:
+                        if status in current_statuses:
+                            current_statuses.remove(status)
+                            removed_statuses.append(status)
+                            logger.info(f"Profile {profile_number}: Removed old status '{status}' - account is working normally")
+                    
+                    if removed_statuses:
+                        logger.info(f"Profile {profile_number}: Cleaned up old statuses: {removed_statuses}")
+                    
+                    # Add 'Logged In ⭐️' if not already present (without removing other statuses)
+                    if 'Logged In ⭐️' not in current_statuses:
+                        current_statuses.append('Logged In ⭐️')
+                        logger.info(f"Profile {profile_number}: Added 'Logged In ⭐️' status to existing statuses: {current_statuses}")
+                    else:
+                        logger.info(f"Profile {profile_number}: 'Logged In ⭐️' status already exists, keeping current statuses: {current_statuses}")
+                    
+                    # Update Airtable
+                    update_data = {'Status': current_statuses}
+                    result = table.update(record_id, update_data)
+                    logger.info(f"✅ Profile {profile_number} updated with statuses: {current_statuses}")
+                    return True
+                else:
+                    logger.warning(f"❌ Profile {profile_number} not found in Airtable")
+                    return False
+
+            except Exception as e:
+                logger.error(f"❌ Error marking profile {profile_number} as logged in: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    return False
+
+    @staticmethod
+    def clean_up_old_statuses(profile_number):
+        """Remove old problematic statuses when account is working normally"""
+        if not AIRTABLE_AVAILABLE:
+            return False
+
+        max_retries = 2
+        retry_delay = 1
+
+        for attempt in range(max_retries):
+            try:
+                AirtableManager._rate_limit()
+
+                api = AirtableManager._get_api()
+                table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+
+                records = table.all(formula=f"{{Profile}} = {profile_number}")
+
+                if records:
+                    record_id = records[0]['id']
+                    current_record = records[0]
+                    
+                    # Get current statuses (multi-select field)
+                    current_statuses = current_record.get('fields', {}).get('Status', [])
+                    
+                    # Convert to list if it's not already
+                    if not isinstance(current_statuses, list):
+                        current_statuses = [current_statuses] if current_statuses else []
+                    
+                    # Statuses to remove when account is working normally
+                    statuses_to_remove = [
+                        'Waiting for Appeal',
+                        'Suspended',
+                        'Banned 🔴',
+                        "Can't Access",
+                        'Something went wrong Checkpoint',
+                        'Wrong Password',
+                        'Bad Proxy'
+                    ]
+                    
+                    # Remove old problematic statuses
+                    removed_statuses = []
+                    for status in statuses_to_remove:
+                        if status in current_statuses:
+                            current_statuses.remove(status)
+                            removed_statuses.append(status)
+                            logger.info(f"Profile {profile_number}: Removed old status '{status}' - account is working normally")
+                    
+                    if removed_statuses:
+                        # Update Airtable
+                        update_data = {'Status': current_statuses}
+                        result = table.update(record_id, update_data)
+                        logger.info(f"✅ Profile {profile_number} cleaned up old statuses. Removed: {removed_statuses}, remaining: {current_statuses}")
+                        return True
+                    else:
+                        logger.info(f"Profile {profile_number}: No old statuses to remove")
+                        return True
+                else:
+                    logger.warning(f"❌ Profile {profile_number} not found in Airtable")
+                    return False
+
+            except Exception as e:
+                logger.error(f"❌ Error cleaning up old statuses for profile {profile_number}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    return False
+
+    @staticmethod
     def update_profile_statistics(profile_number, last_run=None, follows_today=None, total_follows=None):
         """Update profile statistics in Airtable"""
         if not AIRTABLE_AVAILABLE:
@@ -1585,6 +1750,22 @@ class ProfileRunner:
                 bot.stop_profile()
                 return
 
+            # Profile successfully started and navigated to Instagram - add logged in status
+            profile_number = None
+            with profiles_lock:
+                if key in profiles:
+                    profile_number = profiles[key].get('profile_number')
+            
+            if profile_number:
+                # Add 'Logged In ⭐️' status for normal runs or after successful tests
+                if max_follows > 1:  # Normal run
+                    airtable_executor.submit(
+                        AirtableManager.mark_profile_logged_in,
+                        profile_number
+                    )
+                    logger.info(f"Profile {pid}: Added 'Logged In ⭐️' status to Airtable (normal startup)")
+                elif max_follows == 1:
+                    logger.info(f"Profile {pid}: Test mode - will add 'Logged In ⭐️' status after successful test completion")
 
             # Follow loop
             follows_this_hour = 0
@@ -1759,6 +1940,19 @@ class ProfileRunner:
                 if not bot_was_blocked and final_status in ['Running', 'Finished', 'Testing', 'Not Running']:
                     logger.info(f"✅ TEST SUCCESSFUL for previously blocked profile {pid} - reviving profile")
                     StatusManager.revive_profile_status(pid)
+                    
+                    # Add 'Logged In ⭐️' status after successful test of previously blocked profile
+                    profile_number = None
+                    with profiles_lock:
+                        if key in profiles:
+                            profile_number = profiles[key].get('profile_number')
+                    
+                    if profile_number:
+                        airtable_executor.submit(
+                            AirtableManager.mark_profile_logged_in,
+                            profile_number
+                        )
+                        logger.info(f"Profile {pid}: Added 'Logged In ⭐️' status after successful test of previously blocked profile")
                 else:
                     logger.info(f"❌ TEST CONFIRMED profile {pid} is still blocked - keeping blocked status")
             elif is_test_mode:
@@ -1767,6 +1961,18 @@ class ProfileRunner:
                     logger.info(f"⚠️ TEST DETECTED new block for profile {pid} - marking as blocked")
                 else:
                     logger.info(f"✅ TEST SUCCESSFUL for profile {pid} - profile is working correctly")
+                    # Add 'Logged In ⭐️' status after successful test
+                    profile_number = None
+                    with profiles_lock:
+                        if key in profiles:
+                            profile_number = profiles[key].get('profile_number')
+                    
+                    if profile_number:
+                        airtable_executor.submit(
+                            AirtableManager.mark_profile_logged_in,
+                            profile_number
+                        )
+                        logger.info(f"Profile {pid}: Added 'Logged In ⭐️' status after successful test")
 
             # Update Airtable
             if profiles[key]['status'] in ['Finished', 'Stopped', 'Blocked', 'Suspended']:
@@ -2369,6 +2575,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             self._set_headers()
             self.wfile.write(json.dumps(response).encode())
+            return
+
+        if u.path == '/api/active-count':
+            self._set_headers(200, 'application/json')
+            try:
+                active_count, total_count = get_active_profiles_count()
+                response = {
+                    'active_profiles': active_count,
+                    'total_profiles': total_count,
+                    'chrome_processes': len([p for p in os.popen('ps aux | grep -i chrome | grep -v grep').readlines()])
+                }
+                self.wfile.write(json.dumps(response).encode())
+            except Exception as e:
+                error_response = {'error': str(e)}
+                self.wfile.write(json.dumps(error_response).encode())
             return
 
         if u.path == '/api/control':

@@ -1317,11 +1317,54 @@ class InstagramFollowBot:
                 self.stop_profile()
                 return None
 
+            # Profile successfully started and navigated to Instagram - mark as logged in
+            # Add 'Logged In' status for normal runs or after successful tests
+            if max_follows is None or max_follows > 1:
+                # Remove old problematic statuses if account is working normally
+                old_statuses_to_remove = [
+                    AIRTABLE_STATUSES['FOLLOW_BLOCK'],
+                    AIRTABLE_STATUSES['WAITING_FOR_APPEAL'],
+                    AIRTABLE_STATUSES['SUSPENDED'],
+                    AIRTABLE_STATUSES['BANNED'],
+                    AIRTABLE_STATUSES['CANT_ACCESS'],
+                    AIRTABLE_STATUSES['SOMETHING_WRONG'],
+                    AIRTABLE_STATUSES['WRONG_PASSWORD'],
+                    AIRTABLE_STATUSES['BAD_PROXY']
+                ]
+                
+                for status in old_statuses_to_remove:
+                    remove_airtable_status(self.profile_id, status)
+                
+                update_airtable_status(self.profile_id, AIRTABLE_STATUSES['LOGGED_IN'])
+                logger.info(f"Profile No.{self.profile_id}: Cleaned up old statuses and marked as logged in in Airtable (normal startup)")
+            else:
+                logger.info(f"Profile No.{self.profile_id}: Test mode - will add 'Logged In' status after successful test completion")
+
             # Follow users continuously
             results = self.follow_users_continuously(delay_range, fast_mode, max_follows, delay_config)
 
             # Log results
             logger.info(f"Profile No.{self.profile_id}: Bot completed. Results: {results}")
+
+            # If this was a test mode and completed successfully, add 'Logged In' status
+            if max_follows == 1 and results and not self.is_follow_blocked and not self.is_suspended:
+                # Remove old problematic statuses if account is working normally after test
+                old_statuses_to_remove = [
+                    AIRTABLE_STATUSES['FOLLOW_BLOCK'],
+                    AIRTABLE_STATUSES['WAITING_FOR_APPEAL'],
+                    AIRTABLE_STATUSES['SUSPENDED'],
+                    AIRTABLE_STATUSES['BANNED'],
+                    AIRTABLE_STATUSES['CANT_ACCESS'],
+                    AIRTABLE_STATUSES['SOMETHING_WRONG'],
+                    AIRTABLE_STATUSES['WRONG_PASSWORD'],
+                    AIRTABLE_STATUSES['BAD_PROXY']
+                ]
+                
+                for status in old_statuses_to_remove:
+                    remove_airtable_status(self.profile_id, status)
+                
+                update_airtable_status(self.profile_id, AIRTABLE_STATUSES['LOGGED_IN'])
+                logger.info(f"Profile No.{self.profile_id}: Cleaned up old statuses and added 'Logged In' status after successful test completion")
 
             return results
 
