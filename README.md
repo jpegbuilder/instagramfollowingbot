@@ -10,6 +10,8 @@ An advanced Instagram automation system with AdsPower browser profile management
 - **Web Dashboard**: Real-time monitoring and control of all profiles
 - **Concurrent Execution**: Efficiently manage multiple profiles with configurable limits
 - **Safety Features**: Built-in delays, error handling, and suspension detection
+- **Automatic Target Tracking**: Automatically updates Airtable with followed users and remaining targets count
+- **File Management**: Creates and manages text files with usernames for each profile
 
 ## Prerequisites
 
@@ -21,12 +23,14 @@ An advanced Instagram automation system with AdsPower browser profile management
 ## Installation
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/yourusername/instagram-automation-bot.git
    cd instagram-automation-bot
    ```
 
 2. Install required packages:
+
    ```bash
    pip install -r requirements.txt
    ```
@@ -44,18 +48,24 @@ An advanced Instagram automation system with AdsPower browser profile management
 Your Airtable base should have the following structure:
 
 **Main Table Fields:**
+
 - `Profile Number`: Unique identifier for each profile
 - `Username`: Instagram username
 - `AdsPower ID`: AdsPower profile user ID
 - `Status`: Account status (Alive, Follow Block, etc.)
 - `Assigned IG`: Link to follower list record
+- `Targets`: Attachment field with .txt file containing target usernames
+- `Already Followed`: Attachment field with .txt file containing followed usernames
+- `Remaining Targets`: Number field with count of remaining targets to follow
 
 **Linked Table Fields:**
+
 - `Filtered Followers`: Attachment field with .txt file containing target usernames
 
 ### Dashboard Configuration
 
 Edit `config.json` to customize:
+
 - Follow delays and intervals
 - Maximum follows per hour
 - Extended break durations
@@ -80,9 +90,20 @@ Access the dashboard at `http://localhost:8080`
 - **Start Range**: Start profiles within a number range
 - **Test Mode**: Run profiles with minimal follows for testing
 
+### Airtable Integration
+
+The bot automatically tracks and updates Airtable with:
+
+- **Followed Users**: Creates text files with usernames that were successfully followed
+- **Already Followed**: Tracks users that were already being followed
+- **Remaining Targets**: Automatically calculates and updates the count of remaining targets
+
+For detailed information about the Airtable integration, see [AIRTABLE_INTEGRATION_README.md](AIRTABLE_INTEGRATION_README.md).
+
 ### Profile Management
 
 Each profile displays:
+
 - Profile name and number
 - Current status (Running, Stopped, Error, etc.)
 - Follow statistics
@@ -98,7 +119,11 @@ Each profile displays:
 ├── api_config.py            # API keys (create from template)
 ├── api_config_template.py   # API configuration template
 ├── usernames.txt            # Default follower list
-└── assigned_followers/      # Profile-specific follower lists
+├── remaining-targets.py     # Airtable line counter script
+├── test_airtable_integration.py  # Test script for Airtable integration
+├── AIRTABLE_INTEGRATION_README.md  # Detailed integration documentation
+├── assigned_followers/      # Profile-specific follower lists
+└── {profile_number}_already_followed_usernames.txt  # Generated files for each profile
 ```
 
 ## Safety and Best Practices

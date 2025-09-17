@@ -30,6 +30,11 @@ except ImportError:
     AIRTABLE_AVAILABLE = False
     logging.warning("pyairtable not installed. Install with: pip install pyairtable")
 
+# Additional imports for Airtable file management
+import io
+import tempfile
+import json
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -168,6 +173,366 @@ def remove_airtable_status(profile_number, status):
         return False
 
 
+def get_airtable_record_by_profile(profile_number):
+    """Get Airtable record by profile number"""
+    if not AIRTABLE_AVAILABLE:
+        return None
+    
+    try:
+        api = Api(AIRTABLE_PERSONAL_ACCESS_TOKEN)
+        table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+        records = table.all(formula=f"{{Profile}} = {profile_number}")
+        return records[0] if records else None
+    except Exception as e:
+        logger.error(f"Profile {profile_number}: Error getting Airtable record: {str(e)}")
+        return None
+
+
+def count_lines_in_airtable_file(file_url):
+    """Count non-empty lines in a text file from Airtable"""
+    try:
+        response = requests.get(file_url, timeout=30)
+        response.raise_for_status()
+        text = response.text
+        lines = [line for line in text.split('\n') if line.strip()]
+        return len(lines)
+    except Exception as e:
+        logger.warning(f"Error counting lines in file {file_url}: {str(e)}")
+        return 0
+
+
+def create_or_update_airtable_file(profile_number, field_name, usernames, existing_attachments=None):
+    """Create a new file or update existing file in Airtable field"""
+    if not AIRTABLE_AVAILABLE:
+        logger.warning(f"Profile {profile_number}: Airtable not available, cannot update {field_name}")
+        return False
+    
+    try:
+        api = Api(AIRTABLE_PERSONAL_ACCESS_TOKEN)
+        table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+        
+        # Get the record
+        record = get_airtable_record_by_profile(profile_number)
+        if not record:
+            logger.error(f"Profile {profile_number}: Record not found in Airtable")
+            return False
+        
+        record_id = record['id']
+        fields = record.get('fields', {})
+        
+        # Create text content
+        text_content = '\n'.join(usernames) if usernames else ''
+        
+        # Create filename for upload (no local file creation)
+        filename = f"{profile_number}_{field_name.replace(' ', '_').lower()}_usernames.txt"
+        
+        logger.info(f"Profile {profile_number}: Preparing to upload {filename} with {len(usernames)} usernames")
+        
+        # Try to upload file to cloud service and then to Airtable
+        try:
+            # Try GitHub Gist first
+            file_url = upload_file_to_github_gist(filename, text_content, f"Profile {profile_number} - {field_name}")
+            
+            # If GitHub Gist fails, try file.io
+            if not file_url:
+                logger.info(f"Profile {profile_number}: GitHub Gist failed, trying file.io")
+                file_url = upload_file_to_fileio(filename, text_content)
+            
+            # If file.io fails, use data URL as fallback
+            if not file_url:
+                logger.info(f"Profile {profile_number}: Using data URL as fallback")
+                file_url = create_github_raw_url(filename, text_content)
+            
+            if file_url:
+                # Create attachment data for Airtable using the file URL
+                attachment_data = {
+                    "url": file_url,
+                    "filename": filename
+                }
+                
+                # Get existing attachments
+                existing_attachments = fields.get(field_name, [])
+                
+                # If there are existing attachments, replace them with new one
+                if existing_attachments:
+                    logger.info(f"Profile {profile_number}: Replacing existing {len(existing_attachments)} attachments in '{field_name}'")
+                    update_data = {field_name: [attachment_data]}  # Replace all with new file
+                else:
+                    logger.info(f"Profile {profile_number}: Creating new attachment in '{field_name}'")
+                    update_data = {field_name: [attachment_data]}  # Create new attachment
+                
+                result = table.update(record_id, update_data)
+                
+                logger.info(f"Profile {profile_number}: Successfully uploaded file to Airtable field '{field_name}' via cloud service")
+                return True
+            else:
+                logger.warning(f"Profile {profile_number}: Failed to upload to cloud service")
+                raise Exception("Cloud upload failed")
+            
+        except Exception as upload_error:
+            logger.error(f"Profile {profile_number}: Failed to upload to Airtable: {str(upload_error)}")
+            logger.error(f"Profile {profile_number}: Could not upload file to '{field_name}' field")
+            return False
+                
+    except Exception as e:
+        logger.error(f"Profile {profile_number}: Error creating/updating file in {field_name}: {str(e)}")
+        return False
+
+
+def create_github_raw_url(filename, content):
+    """Create a GitHub Raw URL for the file (simulation)"""
+    try:
+        # This is a simulation - in real implementation, you would:
+        # 1. Create a GitHub repository
+        # 2. Upload the file to the repository
+        # 3. Get the raw URL
+        
+        # For now, we'll create a data URL that Airtable might accept
+        import base64
+        file_content_b64 = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+        data_url = f"data:text/plain;base64,{file_content_b64}"
+        
+        logger.info(f"Created data URL for {filename}: {data_url[:50]}...")
+        return data_url
+        
+    except Exception as e:
+        logger.error(f"Error creating GitHub Raw URL: {str(e)}")
+        return None
+
+
+def create_local_web_server(filename, content):
+    """Create a simple local web server for testing (development only)"""
+    try:
+        import http.server
+        import socketserver
+        import threading
+        import webbrowser
+        from urllib.parse import urlencode
+        
+        # Create a simple HTTP server
+        PORT = 8000
+        
+        class SimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == f'/{filename}':
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/plain')
+                    self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+                    self.end_headers()
+                    self.wfile.write(content.encode('utf-8'))
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+        
+        # Start server in background thread
+        def start_server():
+            with socketserver.TCPServer(("", PORT), SimpleHTTPRequestHandler) as httpd:
+                httpd.serve_forever()
+        
+        server_thread = threading.Thread(target=start_server, daemon=True)
+        server_thread.start()
+        
+        # Return local URL
+        local_url = f"http://localhost:{PORT}/{filename}"
+        logger.info(f"Created local web server for {filename}: {local_url}")
+        return local_url
+        
+    except Exception as e:
+        logger.error(f"Error creating local web server: {str(e)}")
+        return None
+
+
+def upload_file_to_fileio(filename, content):
+    """Upload file to file.io (free file hosting) and return public URL"""
+    try:
+        # file.io API endpoint
+        upload_url = "https://file.io"
+        
+        # Prepare file data
+        files = {
+            'file': (filename, content, 'text/plain')
+        }
+        
+        # Upload file
+        response = requests.post(upload_url, files=files, timeout=30)
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('success'):
+                file_url = result.get('link')
+                logger.info(f"Successfully uploaded {filename} to file.io: {file_url}")
+                return file_url
+            else:
+                logger.warning(f"Failed to upload to file.io: {result}")
+                return None
+        else:
+            logger.warning(f"Failed to upload to file.io: {response.status_code} - {response.text}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error uploading to file.io: {str(e)}")
+        return None
+
+
+def upload_file_to_0x0(filename, content):
+    """Upload file to 0x0.st (free file hosting) and return public URL"""
+    try:
+        # 0x0.st API endpoint
+        upload_url = "https://0x0.st"
+        
+        # Prepare file data
+        files = {
+            'file': (filename, content, 'text/plain')
+        }
+        
+        # Upload file
+        response = requests.post(upload_url, files=files, timeout=30)
+        
+        if response.status_code == 200:
+            file_url = response.text.strip()
+            logger.info(f"Successfully uploaded {filename} to 0x0.st: {file_url}")
+            return file_url
+        else:
+            logger.warning(f"Failed to upload to 0x0.st: {response.status_code} - {response.text}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error uploading to 0x0.st: {str(e)}")
+        return None
+
+
+def upload_file_to_github_gist(filename, content, description="Instagram Bot File"):
+    """Upload file to GitHub Gist and return public URL"""
+    try:
+        # Import GitHub token from config
+        try:
+            from api_config import GITHUB_TOKEN
+        except ImportError:
+            logger.warning("GitHub token not configured in api_config.py")
+            return None
+        
+        if GITHUB_TOKEN == "your_github_token_here":
+            logger.warning("Please set your GitHub token in api_config.py")
+            return None
+        
+        # GitHub Gist API endpoint
+        gist_url = "https://api.github.com/gists"
+        
+        # Prepare gist data
+        gist_data = {
+            "description": f"{description} - {filename}",
+            "public": True,
+            "files": {
+                filename: {
+                    "content": content
+                }
+            }
+        }
+        
+        # Headers for GitHub API
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+            "Authorization": f"token {GITHUB_TOKEN}"
+        }
+        
+        # Upload to GitHub Gist
+        response = requests.post(gist_url, headers=headers, json=gist_data, timeout=30)
+        
+        if response.status_code == 201:
+            gist_info = response.json()
+            # Get the raw file URL
+            raw_url = gist_info["files"][filename]["raw_url"]
+            logger.info(f"Successfully uploaded {filename} to GitHub Gist: {raw_url}")
+            return raw_url
+        else:
+            logger.warning(f"Failed to upload to GitHub Gist: {response.status_code} - {response.text}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error uploading to GitHub Gist: {str(e)}")
+        return None
+
+
+def upload_file_to_pastebin(filename, content):
+    """Upload file to Pastebin and return public URL"""
+    try:
+        # Pastebin API endpoint
+        paste_url = "https://pastebin.com/api/api_post.php"
+        
+        # Prepare data
+        data = {
+            'api_dev_key': 'your_api_key_here',  # Would need actual API key
+            'api_option': 'paste',
+            'api_paste_code': content,
+            'api_paste_name': filename,
+            'api_paste_private': '0',  # Public
+            'api_paste_expire_date': 'N'  # Never expire
+        }
+        
+        # For now, return None since we don't have API key
+        logger.warning("Pastebin requires API key - not implemented yet")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error uploading to Pastebin: {str(e)}")
+        return None
+
+
+def update_remaining_targets_count(profile_number):
+    """Update the Remaining Targets field by counting lines in Targets and Already Followed files"""
+    if not AIRTABLE_AVAILABLE:
+        logger.warning(f"Profile {profile_number}: Airtable not available, cannot update remaining targets")
+        return False
+    
+    try:
+        api = Api(AIRTABLE_PERSONAL_ACCESS_TOKEN)
+        table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+        
+        # Get the record
+        record = get_airtable_record_by_profile(profile_number)
+        if not record:
+            logger.error(f"Profile {profile_number}: Record not found in Airtable")
+            return False
+        
+        record_id = record['id']
+        fields = record.get('fields', {})
+        
+        # Count lines in Targets field (from Airtable attachments)
+        targets_attachments = fields.get('Targets', [])
+        targets_count = 0
+        for attachment in targets_attachments:
+            targets_count += count_lines_in_airtable_file(attachment['url'])
+        
+        # Count lines in Already Followed field (from Airtable attachments)
+        already_followed_attachments = fields.get('Already Followed', [])
+        already_followed_count = 0
+        for attachment in already_followed_attachments:
+            already_followed_count += count_lines_in_airtable_file(attachment['url'])
+        
+        # Note: We only count from Airtable attachments now, no local files
+        if targets_count == 0:
+            logger.warning(f"Profile {profile_number}: No targets found in Airtable 'Targets' field")
+        
+        if already_followed_count == 0:
+            logger.warning(f"Profile {profile_number}: No already followed users found in Airtable 'Already Followed' field")
+        
+        # Calculate remaining targets
+        remaining_targets = targets_count - already_followed_count
+        
+        # Update the Remaining Targets field
+        update_data = {'Remaining Targets': remaining_targets}
+        result = table.update(record_id, update_data)
+        
+        logger.info(f"Profile {profile_number}: Updated Remaining Targets to {remaining_targets} "
+                   f"(Targets: {targets_count}, Already Followed: {already_followed_count})")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Profile {profile_number}: Error updating remaining targets: {str(e)}")
+        return False
+
+
 class InstagramFollowBot:
     def __init__(self, adspower_api_url=None, profile_id=None):
         """
@@ -190,6 +555,8 @@ class InstagramFollowBot:
         self.max_window_recovery_attempts = 3
         self.is_test_mode = False  # Flag to indicate test mode
         self.successful_follows_count = 0  # Track successful follows
+        self.followed_usernames = []  # Track usernames that were successfully followed
+        self.already_followed_usernames = []  # Track usernames that were already followed
 
     def check_adspower_connection(self):
         """Check if AdsPower API is accessible"""
@@ -1109,7 +1476,14 @@ class InstagramFollowBot:
                 button_text = follow_button.text.lower()
                 if "following" in button_text or "requested" in button_text:
                     logger.info(f"Profile No.{self.profile_id}: Already following or requested {username}")
+                    self.already_followed_usernames.append(username)
                     self.consecutive_follow_errors = 0  # Reset error counter on success
+                    
+                    # Update Airtable after every 5 already followed users
+                    if len(self.already_followed_usernames) % 5 == 0:
+                        logger.info(f"Profile No.{self.profile_id}: Updating Airtable after {len(self.already_followed_usernames)} already followed...")
+                        self.update_airtable_with_followed_users()
+                    
                     return True
 
                 # Click follow button
@@ -1124,9 +1498,15 @@ class InstagramFollowBot:
 
                 if follow_success:
                     logger.info(f"Profile No.{self.profile_id}: ✅ Successfully followed {username}")
+                    self.followed_usernames.append(username)
                     self.consecutive_follow_errors = 0  # Reset error counter on success
                     self.consecutive_follow_blocks = 0  # Reset block counter on success
                     self.successful_follows_count += 1  # Increment successful follows counter
+
+                    # Update Airtable after every 5 successful follows
+                    if len(self.followed_usernames) % 5 == 0:
+                        logger.info(f"Profile No.{self.profile_id}: Updating Airtable after {len(self.followed_usernames)} follows...")
+                        self.update_airtable_with_followed_users()
 
                     # Minimal delay after successful follow
                     if fast_mode:
@@ -1153,6 +1533,8 @@ class InstagramFollowBot:
                         update_airtable_status(self.profile_id, AIRTABLE_STATUSES['FOLLOW_BLOCK'])
                         # Update local profile status immediately
                         self._update_local_profile_status()
+                        # Update Airtable with current progress before stopping
+                        self.update_airtable_with_followed_users()
                         return False
 
                     return False
@@ -1167,6 +1549,8 @@ class InstagramFollowBot:
                     if self.check_if_suspended():
                         self.is_suspended = True
                         logger.error(f"Profile No.{self.profile_id}: ACCOUNT SUSPENDED! Stopping this profile.")
+                        # Update Airtable with current progress before stopping
+                        self.update_airtable_with_followed_users()
                         return False
                     else:
                         logger.info(f"Profile No.{self.profile_id}: Not suspended, resetting error counter")
@@ -1374,8 +1758,68 @@ class InstagramFollowBot:
             logger.error(f"Profile No.{self.profile_id}: Error in main bot execution: {str(e)}")
             return None
         finally:
+            # Update Airtable with followed usernames before stopping
+            self.update_airtable_with_followed_users()
             # Always stop the profile
             self.stop_profile()
+
+    def update_airtable_with_followed_users(self):
+        """Update Airtable with followed usernames and recalculate remaining targets"""
+        if not AIRTABLE_AVAILABLE:
+            logger.warning(f"Profile No.{self.profile_id}: Airtable not available, cannot update followed users")
+            return False
+        
+        try:
+            # Get current record
+            record = get_airtable_record_by_profile(self.profile_id)
+            if not record:
+                logger.error(f"Profile No.{self.profile_id}: Record not found in Airtable")
+                return False
+            
+            fields = record.get('fields', {})
+            
+            # Get existing usernames from Already Followed field
+            existing_followed = []
+            already_followed_attachments = fields.get('Already Followed', [])
+            
+            # Download and parse existing usernames
+            for attachment in already_followed_attachments:
+                try:
+                    response = requests.get(attachment['url'], timeout=30)
+                    response.raise_for_status()
+                    existing_lines = [line.strip() for line in response.text.split('\n') if line.strip()]
+                    existing_followed.extend(existing_lines)
+                except Exception as e:
+                    logger.warning(f"Profile No.{self.profile_id}: Error reading existing followed file: {str(e)}")
+            
+            # Combine existing and new usernames
+            all_followed_usernames = list(set(existing_followed + self.followed_usernames + self.already_followed_usernames))
+            
+            if all_followed_usernames:
+                # Create or update the Already Followed file
+                success = create_or_update_airtable_file(
+                    self.profile_id, 
+                    'Already Followed', 
+                    all_followed_usernames,
+                    already_followed_attachments
+                )
+                
+                if success:
+                    logger.info(f"Profile No.{self.profile_id}: Updated Already Followed field with {len(all_followed_usernames)} usernames")
+                    
+                    # Update remaining targets count
+                    update_remaining_targets_count(self.profile_id)
+                    return True
+                else:
+                    logger.error(f"Profile No.{self.profile_id}: Failed to update Already Followed field")
+                    return False
+            else:
+                logger.info(f"Profile No.{self.profile_id}: No usernames to update in Airtable")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Profile No.{self.profile_id}: Error updating Airtable with followed users: {str(e)}")
+            return False
 
 
 def load_profiles_from_file(filename="adspowerprofiles.txt"):
