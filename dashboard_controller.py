@@ -881,7 +881,7 @@ class StatusManager:
             with profiles_lock:
                 if pid_str in profiles:
                     profiles[pid_str]['status'] = 'Not Running'
-                    profiles[pid_str]['airtable_status'] = 'Alive'
+                    profiles[pid_str]['airtable_status'] = ['Alive']  # Keep as list for consistency
                     profiles[pid_str]['stop_requested'] = False
                     
                     # Get profile_number for Airtable update
@@ -954,12 +954,12 @@ class AirtableManager:
                             break
                     
                     if found_profile:
-                        # Update airtable_status from Airtable
-                        airtable_status = record['fields'].get('Status', 'Alive')
-                        if isinstance(airtable_status, list):
-                            airtable_status = airtable_status[0] if airtable_status else 'Alive'
+                        # Update airtable_status from Airtable (multi-select field)
+                        airtable_status = record['fields'].get('Status', ['Alive'])
+                        if not isinstance(airtable_status, list):
+                            airtable_status = [airtable_status] if airtable_status else ['Alive']
                         
-                        old_status = profiles[found_profile].get('airtable_status')
+                        old_status = profiles[found_profile].get('airtable_status', ['Alive'])
                         profiles[found_profile]['airtable_status'] = airtable_status
                         
                         if old_status != airtable_status:
@@ -1191,12 +1191,19 @@ class AirtableManager:
                     if removed_statuses:
                         logger.info(f"Profile {profile_number}: Cleaned up old statuses: {removed_statuses}")
                     
-                    # Add 'Logged In ⭐️' if not already present (without removing other statuses)
-                    if 'Logged In ⭐️' not in current_statuses:
-                        current_statuses.append('Logged In ⭐️')
-                        logger.info(f"Profile {profile_number}: Added 'Logged In ⭐️' status to existing statuses: {current_statuses}")
+                    # Add 'Logged In ⭐️' and 'Alive' if not already present (without removing other statuses)
+                    statuses_to_add = ['Logged In ⭐️', 'Alive']
+                    added_statuses = []
+                    
+                    for status in statuses_to_add:
+                        if status not in current_statuses:
+                            current_statuses.append(status)
+                            added_statuses.append(status)
+                    
+                    if added_statuses:
+                        logger.info(f"Profile {profile_number}: Added statuses {added_statuses} to existing statuses: {current_statuses}")
                     else:
-                        logger.info(f"Profile {profile_number}: 'Logged In ⭐️' status already exists, keeping current statuses: {current_statuses}")
+                        logger.info(f"Profile {profile_number}: All required statuses already exist, keeping current statuses: {current_statuses}")
                     
                     # Update Airtable
                     update_data = {'Status': current_statuses}
@@ -1407,6 +1414,15 @@ class AirtableManager:
                     if field_name in record['fields']:
                         record_data['profile_number'] = record['fields'][field_name]
                         break
+                
+                # Get Status field from Airtable (multi-select field)
+                airtable_status = record['fields'].get('Status', 'Alive')
+                if isinstance(airtable_status, list):
+                    # Keep the full list of statuses for proper handling
+                    record_data['airtable_status'] = airtable_status
+                else:
+                    # Convert single status to list for consistency
+                    record_data['airtable_status'] = [airtable_status] if airtable_status else ['Alive']
                 
                 # Get AdsPower ID if present
                 if 'AdsPower ID' in record['fields']:
@@ -1703,13 +1719,15 @@ class ProfileRunner:
         airtable_status = None
         with profiles_lock:
             if key in profiles:
-                airtable_status = profiles[key].get('airtable_status', 'Alive')
+                airtable_status = profiles[key].get('airtable_status', ['Alive'])
         
-        # Convert airtable_status to string if it's a list (Airtable multi-select fields)
-        if isinstance(airtable_status, list):
-            airtable_status = airtable_status[0] if airtable_status else 'Alive'
+        # Ensure airtable_status is a list for proper multi-select handling
+        if not isinstance(airtable_status, list):
+            airtable_status = [airtable_status] if airtable_status else ['Alive']
         
-        was_blocked = persistent_status == 'blocked' or airtable_status == 'Follow Block'
+        # Check if profile is blocked based on Airtable statuses
+        is_blocked_by_airtable = 'Follow Block' in airtable_status or 'Suspended' in airtable_status
+        was_blocked = persistent_status == 'blocked' or is_blocked_by_airtable
         is_test_mode = max_follows == 1
         
         logger.info(f"Profile {pid} starting: was_blocked={was_blocked}, is_test_mode={is_test_mode}, persistent_status={persistent_status}, airtable_status={airtable_status}")
@@ -2536,20 +2554,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     continue
 
                 # Display status - prioritize Airtable status
-                airtable_status = info.get('airtable_status', 'Alive')
+                airtable_status = info.get('airtable_status', ['Alive'])
                 
-                # Convert array to string if needed (Airtable multi-select fields)
-                if isinstance(airtable_status, list):
-                    airtable_status = airtable_status[0] if airtable_status else 'Alive'
+                # Ensure airtable_status is a list for proper multi-select handling
+                if not isinstance(airtable_status, list):
+                    airtable_status = [airtable_status] if airtable_status else ['Alive']
                 
-                # Check if Airtable status indicates the profile is alive
-                if airtable_status in ['Alive', 'Logged In ⭐️']:
+                # Determine display status based on Airtable statuses
+                # Priority order: Follow Block > Suspended > Logged In > Alive > others
+                if 'Follow Block' in airtable_status:
+                    display_status = 'Blocked'
+                elif 'Suspended' in airtable_status:
+                    display_status = 'Suspended'
+                elif 'Logged In ⭐️' in airtable_status:
                     # Even if locally marked as blocked/suspended, show current running status
                     display_status = info['status']
-                elif airtable_status == 'Follow Block':
-                    display_status = 'Blocked'
-                elif airtable_status == 'Suspended':
-                    display_status = 'Suspended'
+                elif 'Alive' in airtable_status:
+                    # Even if locally marked as blocked/suspended, show current running status
+                    display_status = info['status']
                 else:
                     # For any other Airtable status, check persistent status as fallback
                     if persistent_status == 'blocked':
@@ -2579,10 +2601,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         'total_all_time': 0
                     })
 
-                    # Get airtable_status and convert array to string if needed
-                    display_airtable_status = info.get('airtable_status', 'Alive')
-                    if isinstance(display_airtable_status, list):
-                        display_airtable_status = display_airtable_status[0] if display_airtable_status else 'Alive'
+                    # Get airtable_status - keep as list for proper multi-select display
+                    display_airtable_status = info.get('airtable_status', ['Alive'])
+                    if not isinstance(display_airtable_status, list):
+                        display_airtable_status = [display_airtable_status] if display_airtable_status else ['Alive']
                     
                     filtered_profiles[pid] = {
                         'status': display_status,
@@ -2722,10 +2744,10 @@ def initialize_profiles():
                 for profile_data in profiles_list:
                     pid = profile_data['id']  # This is the AdsPower ID (like 'kwyc4ml')
                     profile_number = profile_data.get('profile_number')
-                    # Handle airtable_status as array or string
-                    airtable_status = profile_data['airtable_status']
-                    if isinstance(airtable_status, list):
-                        airtable_status = airtable_status[0] if airtable_status else 'Alive'
+                    # Handle airtable_status as array - keep full list for proper status handling
+                    airtable_status = profile_data.get('airtable_status', ['Alive'])
+                    if not isinstance(airtable_status, list):
+                        airtable_status = [airtable_status] if airtable_status else ['Alive']
                     
                     profiles[str(pid)] = {
                         'thread': None,
