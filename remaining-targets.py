@@ -12,11 +12,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from collections import deque
 
-# Configuration
-AIRTABLE_API_KEY = 'pataQFQzW4Gvg7MUa.a0c0ab4e0fa49acb1973cf2c85fe3a2a1f28e366b2a441db3a83f8dbc990c18c'
-BASE_ID = 'appW95koLyV0VlqbN'
-TABLE_ID = 'tblyldHSbHw2QiOlT'
-VIEW_ID = 'viwYaFMlW2jqqDnLK'
+# Import configuration from api_config
+try:
+    from api_config import AIRTABLE_PERSONAL_ACCESS_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME, AIRTABLE_VIEW_ID
+    AIRTABLE_API_KEY = AIRTABLE_PERSONAL_ACCESS_TOKEN
+    BASE_ID = AIRTABLE_BASE_ID
+    TABLE_ID = AIRTABLE_TABLE_NAME
+    VIEW_ID = AIRTABLE_VIEW_ID
+except ImportError:
+    print("❌ Error: api_config.py not found! Please copy api_config_template.py to api_config.py and fill in your API keys.")
+    exit(1)
 
 # Field names
 TARGETS_FIELD = 'Targets'
