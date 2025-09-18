@@ -3255,12 +3255,12 @@
     "total_all_time": 1
   },
   "k142jcte": {
-    "last_run": 10,
+    "last_run": 12,
     "today": {
       "2025-09-17": 55,
-      "2025-09-18": 10
+      "2025-09-18": 12
     },
-    "total_all_time": 65
+    "total_all_time": 67
   },
   "k142jct9": {
     "last_run": 23,
@@ -3295,10 +3295,15 @@
     "total_all_time": 0
   },
   "k144injf": {
-    "last_run": 41,
+    "last_run": 51,
     "today": {
-      "2025-09-18": 41
+      "2025-09-18": 51
     },
-    "total_all_time": 41
+    "total_all_time": 51
+  },
+  "k140ekuy": {
+    "last_run": 0,
+    "today": {},
+    "total_all_time": 0
   }
 }

@@ -22,14 +22,6 @@
 GITHUB_TOKEN = "ghp_your_actual_token_here"
 ```
 
-## Step 3: Testing
-
-Run the test script:
-
-```bash
-python3 test_airtable_integration.py
-```
-
 ## How It Works
 
 1. **Bot creates a file** with followed usernames

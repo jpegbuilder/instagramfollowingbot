@@ -1,6 +1,6 @@
 # Instagram Automation Bot
 
-An advanced Instagram automation system with AdsPower browser profile management and Airtable integration for organized follower targeting.
+An advanced Instagram automation system with AdsPower browser profile management, Airtable integration, and GitHub Gist file storage for organized follower targeting and automatic progress tracking.
 
 ## Features
 
@@ -11,6 +11,8 @@ An advanced Instagram automation system with AdsPower browser profile management
 - **Concurrent Execution**: Efficiently manage multiple profiles with configurable limits
 - **Safety Features**: Built-in delays, error handling, and suspension detection
 - **Automatic Target Tracking**: Automatically updates Airtable with followed users and remaining targets count
+- **GitHub Gist Integration**: Automatically uploads followed usernames to GitHub Gist for Airtable storage
+- **Real-time Progress Updates**: Updates Airtable every 5 follows and at completion
 - **File Management**: Creates and manages text files with usernames for each profile
 
 ## Prerequisites
@@ -18,6 +20,7 @@ An advanced Instagram automation system with AdsPower browser profile management
 - Python 3.7+
 - AdsPower browser installed and running
 - Airtable account with configured base
+- GitHub account with Personal Access Token
 - Chrome/Chromium browser
 
 ## Installation
@@ -36,10 +39,15 @@ An advanced Instagram automation system with AdsPower browser profile management
    ```
 
 3. Configure API keys:
+
    ```bash
    cp api_config_template.py api_config.py
    ```
+
    Edit `api_config.py` with your actual API keys. See [API Setup Guide](README_API_SETUP.md) for details.
+
+4. Set up GitHub Gist integration:
+   See [GitHub Setup Guide](GITHUB_SETUP.md) for detailed instructions on creating a Personal Access Token.
 
 ## Configuration
 
@@ -95,8 +103,18 @@ Access the dashboard at `http://localhost:8080`
 The bot automatically tracks and updates Airtable with:
 
 - **Followed Users**: Creates text files with usernames that were successfully followed
-- **Already Followed**: Tracks users that were already being followed
-- **Remaining Targets**: Automatically calculates and updates the count of remaining targets
+- **Already Followed**: Uploads followed usernames to GitHub Gist and links to Airtable field
+- **Remaining Targets**: Automatically calculates and updates the count of remaining targets (Targets - Already Followed)
+- **Real-time Updates**: Updates progress every 5 follows and at completion
+- **Smart Error Handling**: Skips updates when no targets are available in Airtable
+
+**How it works:**
+
+1. Bot creates a file with followed usernames
+2. Uploads file to GitHub Gist (free, public storage)
+3. Gets public URL of the file
+4. Updates Airtable "Already Followed" field with the URL
+5. Calculates and updates "Remaining Targets" field automatically
 
 For detailed information about the Airtable integration, see [AIRTABLE_INTEGRATION_README.md](AIRTABLE_INTEGRATION_README.md).
 
@@ -121,6 +139,7 @@ Each profile displays:
 ├── usernames.txt            # Default follower list
 ├── remaining-targets.py     # Airtable line counter script
 ├── test_airtable_integration.py  # Test script for Airtable integration
+├── GITHUB_SETUP.md          # GitHub Gist setup instructions
 ├── AIRTABLE_INTEGRATION_README.md  # Detailed integration documentation
 ├── assigned_followers/      # Profile-specific follower lists
 └── {profile_number}_already_followed_usernames.txt  # Generated files for each profile
@@ -143,6 +162,8 @@ Each profile displays:
 2. **Profile won't start**: Check AdsPower profile exists with correct ID
 3. **No followers found**: Verify Airtable linked records and file attachments
 4. **API errors**: Confirm all API keys are correctly configured
+5. **GitHub Gist upload fails**: Check GitHub Personal Access Token has gist permissions
+6. **Airtable sync issues**: Verify Airtable fields exist and have correct permissions
 
 ## Contributing
 
