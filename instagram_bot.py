@@ -510,14 +510,15 @@ def update_remaining_targets_count(profile_number):
         for attachment in already_followed_attachments:
             already_followed_count += count_lines_in_airtable_file(attachment['url'])
         
-        # Note: We only count from Airtable attachments now, no local files
+        # If no targets in Airtable, don't calculate or update anything
         if targets_count == 0:
-            logger.warning(f"Profile {profile_number}: No targets found in Airtable 'Targets' field")
+            logger.warning(f"Profile {profile_number}: No targets found in Airtable 'Targets' field - skipping calculation")
+            return True  # Return True but don't update anything
         
         if already_followed_count == 0:
             logger.warning(f"Profile {profile_number}: No already followed users found in Airtable 'Already Followed' field")
         
-        # Calculate remaining targets
+        # Calculate remaining targets only if we have targets
         remaining_targets = targets_count - already_followed_count
         
         # Update the Remaining Targets field
