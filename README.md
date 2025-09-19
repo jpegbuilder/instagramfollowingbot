@@ -108,16 +108,6 @@ The bot automatically tracks and updates Airtable with:
 - **Real-time Updates**: Updates progress every 5 follows and at completion
 - **Smart Error Handling**: Skips updates when no targets are available in Airtable
 
-**How it works:**
-
-1. Bot creates a file with followed usernames
-2. Uploads file to GitHub Gist (free, public storage)
-3. Gets public URL of the file
-4. Updates Airtable "Already Followed" field with the URL
-5. Calculates and updates "Remaining Targets" field automatically
-
-For detailed information about the Airtable integration, see [AIRTABLE_INTEGRATION_README.md](AIRTABLE_INTEGRATION_README.md).
-
 ### Profile Management
 
 Each profile displays:
@@ -138,11 +128,7 @@ Each profile displays:
 ├── api_config_template.py   # API configuration template
 ├── usernames.txt            # Default follower list
 ├── remaining-targets.py     # Airtable line counter script
-├── test_airtable_integration.py  # Test script for Airtable integration
 ├── GITHUB_SETUP.md          # GitHub Gist setup instructions
-├── AIRTABLE_INTEGRATION_README.md  # Detailed integration documentation
-├── assigned_followers/      # Profile-specific follower lists
-└── {profile_number}_already_followed_usernames.txt  # Generated files for each profile
 ```
 
 ## Safety and Best Practices
