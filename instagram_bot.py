@@ -35,6 +35,15 @@ import io
 import tempfile
 import json
 
+# Імпорт Appeal Flow
+try:
+    from appeal_flow import InstagramAppealFlow
+    from appeal_config import APPEAL_STATUSES
+    APPEAL_FLOW_AVAILABLE = True
+except ImportError:
+    APPEAL_FLOW_AVAILABLE = False
+    print("⚠️ Appeal Flow не доступний. Встановіть необхідні залежності.")
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -72,7 +81,13 @@ AIRTABLE_STATUSES = {
     'BAD_PROXY': 'Bad Proxy',
     'CANT_ACCESS': "Can't Access",
     'SOMETHING_WRONG': 'Something went wrong Checkpoint',
-    'WRONG_PASSWORD': 'Wrong Password'
+    'WRONG_PASSWORD': 'Wrong Password',
+    'CHANGE_PASSWORD': 'Change Password Checkpoint',
+    'AUTOMATED_BEHAVIOR': 'Automated Behavior Warning',
+    'APPEAL_SUCCESS': 'Appeal Success',
+    'APPEAL_FAILED': 'Appeal Failed',
+    'APPEAL_IN_PROGRESS': 'Appeal in Progress',
+    'LOGGED_OUT': 'Logged Out'
 }
 
 
@@ -1009,7 +1024,7 @@ class InstagramFollowBot:
             return False
 
     def check_if_suspended(self):
-        """Check if the current Instagram account is suspended"""
+        """Check if the current Instagram account is suspended or banned"""
         try:
             # Check if browser window is available and attempt recovery if needed
             if not self.check_and_recover_window():
@@ -1018,43 +1033,238 @@ class InstagramFollowBot:
                 return True
 
             current_url = self.driver.current_url
+            page_source = self.driver.page_source.lower()
 
-            # Method 1: Check URL for suspension redirect
-            if "/accounts/suspended/" in current_url:
-                logger.error(f"Profile No.{self.profile_id}: Account is SUSPENDED (detected via URL)")
-                update_airtable_status(self.profile_id, AIRTABLE_STATUSES['SUSPENDED'])
+            # PRIORITY 1: Check for HTTP 429 Error
+            if "http error 429" in page_source or "too many requests" in page_source:
+                logger.error(f"Profile No.{self.profile_id}: HTTP 429 Error detected")
+                update_airtable_status(self.profile_id, AIRTABLE_STATUSES['SOMETHING_WRONG'])
                 return True
 
-            # Method 2: Check page source for suspension keywords
-            page_source = self.driver.page_source.lower()
+            # PRIORITY 2: Check for Bad Proxy indicators
+            bad_proxy_indicators = [
+                "proxy error",
+                "bad proxy",
+                "proxy connection failed",
+                "network error",
+                "connection timeout"
+            ]
+            if any(indicator in page_source for indicator in bad_proxy_indicators):
+                logger.error(f"Profile No.{self.profile_id}: Bad Proxy detected")
+                update_airtable_status(self.profile_id, AIRTABLE_STATUSES['BAD_PROXY'])
+                return True
+
+            # PRIORITY 3: Check for Account Compromised
+            compromised_indicators = [
+                "your account was compromised",
+                "account compromised",
+                "security issue",
+                "suspicious activity"
+            ]
+            if any(indicator in page_source for indicator in compromised_indicators):
+                logger.error(f"Profile No.{self.profile_id}: Account Compromised detected")
+                update_airtable_status(self.profile_id, AIRTABLE_STATUSES['CHANGE_PASSWORD'])
+                return True
+
+            # PRIORITY 4: Check URL for suspension redirect
+            if "/accounts/suspended/" in current_url:
+                logger.error(f"Profile No.{self.profile_id}: Account is SUSPENDED (detected via URL)")
+                self._run_appeal_flow()
+                return True
+
+            # PRIORITY 5: Check page source for suspension/banned keywords
             suspension_indicators = [
                 "we suspended your account",
                 "your account has been suspended",
                 "account suspended",
                 "suspended on",
-                "we've suspended your account"
+                "we've suspended your account",
+                "your account was disabled",
+                "account disabled",
+                "disabled account",
+                "banned account",
+                "account banned"
             ]
 
             for indicator in suspension_indicators:
                 if indicator in page_source:
-                    logger.error(f"Profile No.{self.profile_id}: Account is SUSPENDED (detected via page content)")
-                    update_airtable_status(self.profile_id, AIRTABLE_STATUSES['SUSPENDED'])
+                    logger.error(f"Profile No.{self.profile_id}: Account is BANNED/SUSPENDED (detected via page content)")
+                    self._run_appeal_flow()
                     return True
 
-            # Method 3: Check for specific suspension page elements
+            # PRIORITY 5.5: Check for "We disabled your account" page (permanent ban)
+            disabled_account_indicators = [
+                "we disabled your account",
+                "you no longer have access",
+                "account disabled on",
+                "you cannot request another review"
+            ]
+
+            if any(indicator in page_source for indicator in disabled_account_indicators):
+                logger.error(f"Profile No.{self.profile_id}: Account PERMANENTLY DISABLED (detected via page content)")
+                self._handle_permanently_disabled_account()
+                return True
+
+            # PRIORITY 6: PARALLEL CHECKPOINT DETECTION - перевіряємо ВСІ чекпоінти одночасно
+            # Instagram може показати будь-який чекпоінт в будь-якому порядку для різних профілів
+            
+            # Phone number confirmation checkpoint
+            phone_indicators = [
+                "enter your mobile number",
+                "confirm this mobile number", 
+                "send code",
+                "phone number",
+                "mobile number",
+                "you'll need to confirm this mobile number",
+                "sms or whatsapp",
+                "via sms",
+                "via whatsapp"
+            ]
+            
+            # reCAPTCHA checkpoint
+            captcha_indicators = [
+                "help us confirm it's you",
+                "i'm not a robot",
+                "recaptcha",
+                "verify you're human",
+                "security check"
+            ]
+            
+            # Human confirmation checkpoint
+            human_confirm_indicators = [
+                "confirm you're human",
+                "confirm you are human",
+                "verify you are human"
+            ]
+            
+            # Email confirmation checkpoint
+            email_indicators = [
+                "enter your email",
+                "confirm your email",
+                "email address",
+                "verify your email"
+            ]
+            
+            # 2FA checkpoint
+            twofa_indicators = [
+                "enter authentication code",
+                "two-factor authentication",
+                "authenticator app",
+                "security code",
+                "verification code"
+            ]
+            
+            # Selfie checkpoint
+            selfie_indicators = [
+                "take a photo",
+                "upload a photo",
+                "selfie",
+                "verify your identity"
+            ]
+            
+            # Детектуємо який чекпоінт присутній на сторінці
+            detected_checkpoints = []
+            
+            if any(indicator in page_source for indicator in phone_indicators):
+                detected_checkpoints.append("phone")
+            
+            if any(indicator in page_source for indicator in captcha_indicators):
+                detected_checkpoints.append("captcha")
+                
+            if any(indicator in page_source for indicator in human_confirm_indicators):
+                detected_checkpoints.append("human_confirm")
+                
+            if any(indicator in page_source for indicator in email_indicators):
+                detected_checkpoints.append("email")
+                
+            if any(indicator in page_source for indicator in twofa_indicators):
+                detected_checkpoints.append("2fa")
+                
+            if any(indicator in page_source for indicator in selfie_indicators):
+                detected_checkpoints.append("selfie")
+            
+            # Обробляємо перший знайдений чекпоінт
+            if detected_checkpoints:
+                checkpoint_type = detected_checkpoints[0]  # Беремо перший знайдений
+                logger.info(f"Profile No.{self.profile_id}: Detected checkpoint: {checkpoint_type} (available: {detected_checkpoints})")
+                
+                if checkpoint_type == "phone":
+                    logger.info(f"Profile No.{self.profile_id}: Phone confirmation checkpoint detected - handling automatically")
+                    self._handle_phone_checkpoint()
+                    return False  # Continue after phone confirmation
+                    
+                elif checkpoint_type == "captcha":
+                    logger.info(f"Profile No.{self.profile_id}: reCAPTCHA checkpoint detected - handling automatically")
+                    self._handle_captcha_checkpoint()
+                    return False  # Continue after solving captcha
+                    
+                elif checkpoint_type == "human_confirm":
+                    logger.info(f"Profile No.{self.profile_id}: Human confirmation checkpoint detected - handling automatically")
+                    self._handle_human_confirm_checkpoint()
+                    return False  # Continue after confirmation
+                    
+                elif checkpoint_type == "email":
+                    logger.info(f"Profile No.{self.profile_id}: Email confirmation checkpoint detected - handling automatically")
+                    # TODO: Implement email confirmation handler
+                    return False
+                    
+                elif checkpoint_type == "2fa":
+                    logger.info(f"Profile No.{self.profile_id}: 2FA checkpoint detected - handling automatically")
+                    # TODO: Implement 2FA handler
+                    return False
+                    
+                elif checkpoint_type == "selfie":
+                    logger.info(f"Profile No.{self.profile_id}: Selfie checkpoint detected - handling automatically")
+                    # TODO: Implement selfie handler
+                    return False
+
+            # PRIORITY 9: Check for automated behavior warning
+            automated_behavior_indicators = [
+                "automated behavior detected",
+                "suspicious activity detected",
+                "unusual activity",
+                "automated actions"
+            ]
+            if any(indicator in page_source for indicator in automated_behavior_indicators):
+                logger.warning(f"Profile No.{self.profile_id}: Automated behavior warning detected")
+                update_airtable_status(self.profile_id, AIRTABLE_STATUSES['AUTOMATED_BEHAVIOR'])
+                # Don't return True - continue working but log the warning
+                return False
+
+            # PRIORITY 7: Check for specific suspension page elements
             suspension_selectors = [
                 "//h1[contains(text(), 'suspended')]",
                 "//h2[contains(text(), 'suspended')]",
                 "//*[contains(text(), 'We suspended your account')]",
-                "//*[contains(text(), 'suspended on')]"
+                "//*[contains(text(), 'suspended on')]",
+                "//*[contains(text(), 'disabled')]",
+                "//*[contains(text(), 'banned')]"
             ]
 
             for selector in suspension_selectors:
                 try:
                     element = self.driver.find_element(By.XPATH, selector)
                     if element:
-                        logger.error(f"Profile No.{self.profile_id}: Account is SUSPENDED (detected via page element)")
-                        update_airtable_status(self.profile_id, AIRTABLE_STATUSES['SUSPENDED'])
+                        logger.error(f"Profile No.{self.profile_id}: Account is BANNED/SUSPENDED (detected via page element)")
+                        self._run_appeal_flow()
+                        return True
+                except NoSuchElementException:
+                    continue
+
+            # PRIORITY 7.5: Check for permanently disabled account elements
+            disabled_selectors = [
+                "//*[contains(text(), 'We disabled your account')]",
+                "//*[contains(text(), 'You no longer have access')]",
+                "//*[contains(text(), 'Account disabled on')]",
+                "//*[contains(text(), 'You cannot request another review')]"
+            ]
+
+            for selector in disabled_selectors:
+                try:
+                    element = self.driver.find_element(By.XPATH, selector)
+                    if element:
+                        logger.error(f"Profile No.{self.profile_id}: Account PERMANENTLY DISABLED (detected via page element)")
+                        self._handle_permanently_disabled_account()
                         return True
                 except NoSuchElementException:
                     continue
@@ -1063,6 +1273,377 @@ class InstagramFollowBot:
 
         except Exception as e:
             logger.warning(f"Profile No.{self.profile_id}: Error checking suspension: {str(e)[:100]}...")
+            return False
+
+    def _run_appeal_flow(self):
+        """Run Appeal Flow for banned/suspended accounts"""
+        try:
+            logger.info(f"Profile No.{self.profile_id}: 🚫 Account banned/suspended - starting Appeal Flow...")
+            
+            # Update status to Banned
+            update_airtable_status(self.profile_id, AIRTABLE_STATUSES['BANNED'])
+            
+            if APPEAL_FLOW_AVAILABLE:
+                # Get profile info for Appeal Flow
+                profile_info = get_airtable_record_by_profile(self.profile_id)
+                if not profile_info:
+                    logger.error(f"Profile No.{self.profile_id}: Cannot get profile info for Appeal Flow")
+                    # Keep "Waiting for Appeal" status since we couldn't get profile info
+                    return False
+                
+                # Create Appeal Flow instance
+                appeal_flow = InstagramAppealFlow(self.driver, self.profile_id)
+                
+                # Run Appeal Flow
+                appeal_result = appeal_flow.run_appeal_flow(profile_info)
+                
+                if appeal_result['success']:
+                    logger.info(f"Profile No.{self.profile_id}: ✅ Appeal Flow завершено успішно!")
+                    
+                    # Remove "Waiting for Appeal" status since appeal was successful
+                    remove_airtable_status(self.profile_id, AIRTABLE_STATUSES['WAITING_FOR_APPEAL'])
+                    
+                    # Remove banned status
+                    remove_airtable_status(self.profile_id, AIRTABLE_STATUSES['BANNED'])
+                    
+                    # Wait a bit and check if account is working again
+                    time.sleep(5)
+                    if not self.check_if_suspended():
+                        logger.info(f"Profile No.{self.profile_id}: ✅ Account відновлено після Appeal Flow!")
+                        update_airtable_status(self.profile_id, AIRTABLE_STATUSES['ALIVE'])
+                        return True
+                    else:
+                        logger.warning(f"Profile No.{self.profile_id}: ⚠️ Account все ще заблокований після Appeal Flow")
+                        return False
+                else:
+                    logger.error(f"Profile No.{self.profile_id}: ❌ Appeal Flow не вдався: {appeal_result['message']}")
+                    # Keep "Waiting for Appeal" status since appeal failed
+                    return False
+            else:
+                logger.warning(f"Profile No.{self.profile_id}: ⚠️ Appeal Flow не доступний")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Profile No.{self.profile_id}: Помилка Appeal Flow: {str(e)}")
+            # Keep "Waiting for Appeal" status since there was an error
+            return False
+
+    def _handle_permanently_disabled_account(self):
+        """Handle permanently disabled account - click Log out and close profile"""
+        try:
+            logger.error(f"Profile No.{self.profile_id}: 🚫 Account PERMANENTLY DISABLED - handling logout and closure")
+            
+            # Update status to Banned AND Logged Out
+            update_airtable_status(self.profile_id, AIRTABLE_STATUSES['BANNED'])
+            update_airtable_status(self.profile_id, AIRTABLE_STATUSES['LOGGED_OUT'])
+            logger.info(f"Profile No.{self.profile_id}: 📊 Updated Airtable statuses: Banned 🔴 + Logged Out")
+            
+            # Try to find and click "Log out" button
+            logout_selectors = [
+                "//button[contains(text(), 'Log out')]",
+                "//button[contains(text(), 'Log Out')]",
+                "//button[contains(text(), 'Logout')]",
+                "//*[contains(@class, 'button') and contains(text(), 'Log out')]",
+                "//a[contains(text(), 'Log out')]",
+                "//a[contains(text(), 'Log Out')]"
+            ]
+            
+            logout_clicked = False
+            for selector in logout_selectors:
+                try:
+                    logout_button = self.driver.find_element(By.XPATH, selector)
+                    if logout_button and logout_button.is_displayed():
+                        logout_button.click()
+                        logger.info(f"Profile No.{self.profile_id}: ✅ Log out button clicked")
+                        logout_clicked = True
+                        time.sleep(2)  # Wait for logout to complete
+                        break
+                except NoSuchElementException:
+                    continue
+            
+            if not logout_clicked:
+                logger.warning(f"Profile No.{self.profile_id}: ⚠️ Log out button not found, proceeding with closure")
+            
+            # Mark profile as permanently disabled (no appeal possible)
+            logger.error(f"Profile No.{self.profile_id}: 🛑 Account permanently disabled - NO APPEAL POSSIBLE")
+            logger.error(f"Profile No.{self.profile_id}: 💀 Profile will be closed and marked as permanently banned")
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Profile No.{self.profile_id}: Помилка обробки постійно заблокованого акаунта: {str(e)}")
+            return False
+
+    def _handle_captcha_checkpoint(self):
+        """Handle reCAPTCHA checkpoint - solve captcha and click Next"""
+        try:
+            logger.info(f"Profile No.{self.profile_id}: 🔐 Handling reCAPTCHA checkpoint...")
+            
+            if APPEAL_FLOW_AVAILABLE:
+                # Create Appeal Flow instance
+                appeal_flow = InstagramAppealFlow(self.driver, self.profile_id)
+                
+                # Try to find reCAPTCHA element and get site key
+                try:
+                    # Look for reCAPTCHA iframe or element
+                    captcha_elements = [
+                        "//iframe[contains(@src, 'recaptcha')]",
+                        "//div[contains(@class, 'recaptcha')]",
+                        "//*[contains(@id, 'recaptcha')]"
+                    ]
+                    
+                    site_key = None
+                    for selector in captcha_elements:
+                        try:
+                            element = self.driver.find_element(By.XPATH, selector)
+                            if element:
+                                # Try to get site key from data attribute or src
+                                site_key = element.get_attribute('data-sitekey') or element.get_attribute('src')
+                                if site_key:
+                                    break
+                        except NoSuchElementException:
+                            continue
+                    
+                    if site_key:
+                        logger.info(f"Profile No.{self.profile_id}: Found reCAPTCHA site key: {site_key}")
+                        # Solve captcha using Appeal Flow
+                        captcha_result = appeal_flow.solve_recaptcha_v2(site_key, self.driver.current_url)
+                        
+                        if captcha_result['success']:
+                            logger.info(f"Profile No.{self.profile_id}: ✅ reCAPTCHA solved successfully")
+                            # Click Next button
+                            self._click_next_button()
+                            time.sleep(3)
+                            return True
+                        else:
+                            logger.error(f"Profile No.{self.profile_id}: ❌ reCAPTCHA solving failed: {captcha_result['message']}")
+                            return False
+                    else:
+                        logger.warning(f"Profile No.{self.profile_id}: ⚠️ reCAPTCHA site key not found, trying simple click")
+                        # Try to find and click "I'm not a robot" checkbox
+                        checkbox_selectors = [
+                            "//span[@id='recaptcha-anchor']",
+                            "//div[contains(@class, 'recaptcha-checkbox')]",
+                            "//*[contains(text(), \"I'm not a robot\")]//parent::*"
+                        ]
+                        
+                        for selector in checkbox_selectors:
+                            try:
+                                checkbox = self.driver.find_element(By.XPATH, selector)
+                                if checkbox and checkbox.is_displayed():
+                                    checkbox.click()
+                                    logger.info(f"Profile No.{self.profile_id}: ✅ reCAPTCHA checkbox clicked")
+                                    time.sleep(5)  # Wait for captcha to process
+                                    self._click_next_button()
+                                    return True
+                            except NoSuchElementException:
+                                continue
+                        
+                        logger.error(f"Profile No.{self.profile_id}: ❌ Could not find reCAPTCHA elements")
+                        return False
+                        
+                except Exception as e:
+                    logger.error(f"Profile No.{self.profile_id}: Error handling reCAPTCHA: {str(e)}")
+                    return False
+            else:
+                logger.warning(f"Profile No.{self.profile_id}: ⚠️ Appeal Flow not available for captcha solving")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Profile No.{self.profile_id}: Error in _handle_captcha_checkpoint: {str(e)}")
+            return False
+
+    def _handle_human_confirm_checkpoint(self):
+        """Handle 'Confirm you're human' checkpoint - click Continue"""
+        try:
+            logger.info(f"Profile No.{self.profile_id}: 👤 Handling human confirmation checkpoint...")
+            
+            # Look for Continue button
+            continue_selectors = [
+                "//button[contains(text(), 'Continue')]",
+                "//button[contains(text(), 'Next')]",
+                "//button[contains(text(), 'Confirm')]",
+                "//*[contains(@class, 'button') and contains(text(), 'Continue')]"
+            ]
+            
+            for selector in continue_selectors:
+                try:
+                    button = self.driver.find_element(By.XPATH, selector)
+                    if button and button.is_displayed():
+                        button.click()
+                        logger.info(f"Profile No.{self.profile_id}: ✅ Human confirmation button clicked")
+                        time.sleep(3)
+                        return True
+                except NoSuchElementException:
+                    continue
+            
+            logger.warning(f"Profile No.{self.profile_id}: ⚠️ Continue button not found for human confirmation")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Profile No.{self.profile_id}: Error in _handle_human_confirm_checkpoint: {str(e)}")
+            return False
+
+    def _handle_phone_checkpoint(self):
+        """Handle phone number confirmation checkpoint - enter phone and send code"""
+        try:
+            logger.info(f"Profile No.{self.profile_id}: 📱 Handling phone confirmation checkpoint...")
+            
+            if APPEAL_FLOW_AVAILABLE:
+                # Create Appeal Flow instance
+                appeal_flow = InstagramAppealFlow(self.driver, self.profile_id)
+                
+                # Get phone number from DaisySMS
+                phone_info = appeal_flow.get_sms_number("ig")
+                if not phone_info:
+                    logger.error(f"Profile No.{self.profile_id}: ❌ Could not get phone number from DaisySMS")
+                    return False
+                
+                phone_number = phone_info['number']
+                logger.info(f"Profile No.{self.profile_id}: 📞 Got phone number: {phone_number}")
+                
+                # Find phone input field and enter number
+                phone_input_selectors = [
+                    "//input[@type='tel']",
+                    "//input[contains(@placeholder, 'Phone')]",
+                    "//input[contains(@placeholder, 'phone')]",
+                    "//input[contains(@name, 'phone')]",
+                    "//input[contains(@id, 'phone')]"
+                ]
+                
+                phone_entered = False
+                for selector in phone_input_selectors:
+                    try:
+                        phone_input = self.driver.find_element(By.XPATH, selector)
+                        if phone_input and phone_input.is_displayed():
+                            phone_input.clear()
+                            phone_input.send_keys(phone_number)
+                            logger.info(f"Profile No.{self.profile_id}: ✅ Phone number entered: {phone_number}")
+                            phone_entered = True
+                            break
+                    except NoSuchElementException:
+                        continue
+                
+                if not phone_entered:
+                    logger.error(f"Profile No.{self.profile_id}: ❌ Could not find phone input field")
+                    return False
+                
+                # Find and click "Send code" button
+                send_code_selectors = [
+                    "//button[contains(text(), 'Send code')]",
+                    "//button[contains(text(), 'Send Code')]",
+                    "//button[contains(text(), 'Send')]",
+                    "//*[contains(@class, 'button') and contains(text(), 'Send code')]"
+                ]
+                
+                send_code_clicked = False
+                for selector in send_code_selectors:
+                    try:
+                        button = self.driver.find_element(By.XPATH, selector)
+                        if button and button.is_displayed():
+                            button.click()
+                            logger.info(f"Profile No.{self.profile_id}: ✅ Send code button clicked")
+                            send_code_clicked = True
+                            time.sleep(5)  # Wait for SMS to be sent
+                            break
+                    except NoSuchElementException:
+                        continue
+                
+                if not send_code_clicked:
+                    logger.warning(f"Profile No.{self.profile_id}: ⚠️ Send code button not found")
+                    return False
+                
+                # Wait for SMS code and enter it
+                logger.info(f"Profile No.{self.profile_id}: 📨 Waiting for SMS code...")
+                sms_code = appeal_flow.get_sms_code(phone_info['id'])
+                
+                if sms_code:
+                    logger.info(f"Profile No.{self.profile_id}: ✅ SMS code received: {sms_code}")
+                    
+                    # Find SMS code input field
+                    code_input_selectors = [
+                        "//input[@type='text']",
+                        "//input[contains(@placeholder, 'code')]",
+                        "//input[contains(@placeholder, 'Code')]",
+                        "//input[contains(@name, 'code')]",
+                        "//input[contains(@id, 'code')]"
+                    ]
+                    
+                    code_entered = False
+                    for selector in code_input_selectors:
+                        try:
+                            code_input = self.driver.find_element(By.XPATH, selector)
+                            if code_input and code_input.is_displayed():
+                                code_input.clear()
+                                code_input.send_keys(sms_code)
+                                logger.info(f"Profile No.{self.profile_id}: ✅ SMS code entered: {sms_code}")
+                                code_entered = True
+                                break
+                        except NoSuchElementException:
+                            continue
+                    
+                    if not code_entered:
+                        logger.error(f"Profile No.{self.profile_id}: ❌ Could not find SMS code input field")
+                        return False
+                    
+                    # Find and click submit/confirm button
+                    confirm_selectors = [
+                        "//button[contains(text(), 'Confirm')]",
+                        "//button[contains(text(), 'Verify')]",
+                        "//button[contains(text(), 'Submit')]",
+                        "//button[contains(text(), 'Next')]",
+                        "//button[@type='submit']"
+                    ]
+                    
+                    for selector in confirm_selectors:
+                        try:
+                            button = self.driver.find_element(By.XPATH, selector)
+                            if button and button.is_displayed():
+                                button.click()
+                                logger.info(f"Profile No.{self.profile_id}: ✅ SMS confirmation completed")
+                                time.sleep(3)
+                                return True
+                        except NoSuchElementException:
+                            continue
+                    
+                    logger.warning(f"Profile No.{self.profile_id}: ⚠️ Confirm button not found, but SMS code entered")
+                    return True
+                else:
+                    logger.error(f"Profile No.{self.profile_id}: ❌ SMS code not received")
+                    return False
+                
+            else:
+                logger.warning(f"Profile No.{self.profile_id}: ⚠️ Appeal Flow not available for phone confirmation")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Profile No.{self.profile_id}: Error in _handle_phone_checkpoint: {str(e)}")
+            return False
+
+    def _click_next_button(self):
+        """Helper method to click Next button"""
+        try:
+            next_selectors = [
+                "//button[contains(text(), 'Next')]",
+                "//button[contains(text(), 'Continue')]",
+                "//*[contains(@class, 'button') and contains(text(), 'Next')]"
+            ]
+            
+            for selector in next_selectors:
+                try:
+                    button = self.driver.find_element(By.XPATH, selector)
+                    if button and button.is_displayed():
+                        button.click()
+                        logger.info(f"Profile No.{self.profile_id}: ✅ Next button clicked")
+                        return True
+                except NoSuchElementException:
+                    continue
+            
+            logger.warning(f"Profile No.{self.profile_id}: ⚠️ Next button not found")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Profile No.{self.profile_id}: Error clicking Next button: {str(e)}")
             return False
 
     def check_if_public_account(self):
@@ -1412,6 +1993,54 @@ class InstagramFollowBot:
             logger.warning(f"Profile No.{self.profile_id}: Error checking follow block: {str(e)[:100]}...")
             return False
 
+    def check_for_automated_behavior_warning(self):
+        """Check for automated behavior warning and dismiss it"""
+        try:
+            current_url = self.driver.current_url
+            page_source = self.driver.page_source.lower()
+
+            # Check for automated behavior warning indicators
+            automated_behavior_indicators = [
+                "automated behavior detected",
+                "suspicious activity detected",
+                "unusual activity",
+                "automated actions",
+                "we've detected unusual activity"
+            ]
+
+            if any(indicator in page_source for indicator in automated_behavior_indicators):
+                logger.warning(f"Profile No.{self.profile_id}: Automated behavior warning detected")
+                
+                # Try to find and click dismiss button
+                dismiss_selectors = [
+                    "//button[contains(text(), 'Dismiss')]",
+                    "//button[contains(text(), 'Continue')]",
+                    "//button[contains(text(), 'OK')]",
+                    "//button[contains(text(), 'Got it')]",
+                    "//*[contains(@class, 'button') and contains(text(), 'Dismiss')]"
+                ]
+
+                for selector in dismiss_selectors:
+                    try:
+                        dismiss_button = self.driver.find_element(By.XPATH, selector)
+                        if dismiss_button and dismiss_button.is_displayed():
+                            dismiss_button.click()
+                            logger.info(f"Profile No.{self.profile_id}: ✅ Automated behavior warning dismissed")
+                            time.sleep(2)
+                            return True
+                    except NoSuchElementException:
+                        continue
+                
+                # If no dismiss button found, just log and continue
+                logger.info(f"Profile No.{self.profile_id}: No dismiss button found for automated behavior warning")
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.warning(f"Profile No.{self.profile_id}: Error checking automated behavior warning: {str(e)[:100]}...")
+            return False
+
     def follow_user(self, username, fast_mode=True, delay_config=None):
         """Follow a specific Instagram user with configurable delays"""
         try:
@@ -1525,6 +2154,11 @@ class InstagramFollowBot:
                         self.is_follow_blocked = True
                         logger.error(f"Profile No.{self.profile_id}: FOLLOW BLOCK detected! Stopping this profile.")
                         return False
+                    
+                    # Check for automated behavior warning
+                    if self.check_for_automated_behavior_warning():
+                        logger.warning(f"Profile No.{self.profile_id}: Automated behavior warning detected - dismissing and continuing...")
+                        # Don't stop the profile, just dismiss and continue
 
                     # If 3 consecutive follow blocks without explicit block detection, assume blocked
                     if self.consecutive_follow_blocks >= 3:

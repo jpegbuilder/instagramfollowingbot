@@ -1,5 +1,6 @@
 # API Configuration (contains sensitive keys)
 api_config.py
+appeal_config.py
 
 # Python
 __pycache__/

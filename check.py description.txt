@@ -1,0 +1,56 @@
+This script is an Instagram Status Checker for AdsPower Profiles that automates checking and managing multiple Instagram accounts. Here's how it works:
+Overview
+The script checks the status of Instagram accounts managed through AdsPower (a browser profile management tool) and updates their status in an Airtable database. It can also attempt to automatically log in to accounts that are logged out.
+Key Components
+1. Profile Management
+
+AdsPower Integration: Controls browser profiles through AdsPower's API
+Airtable Database: Stores profile information including:
+
+Profile numbers
+Current status (Alive, Logged out, Suspended, Disabled, etc.)
+Login credentials (username, password, 2FA secrets)
+
+
+
+2. Main Workflow
+1. User selects profiles to check:
+   - By range (e.g., profiles 2090-2100)
+   - From Airtable view (e.g., all "Logged Out" profiles)
+
+2. Sets concurrent processing limit (how many profiles to check simultaneously)
+
+3. For each profile:
+   a. Starts AdsPower browser profile
+   b. Connects to the browser using Selenium
+   c. Navigates to Instagram
+   d. Detects account status
+   e. If logged out, attempts auto-login
+   f. Updates status in Airtable
+   g. Closes profile
+3. Status Detection
+The script can detect these Instagram account states:
+
+Alive: Account is logged in and functional
+Logged out: Needs login credentials
+Phone verification required: Instagram requesting phone number
+Challenge required: Suspicious activity detected
+Suspended: Account temporarily suspended
+Disabled: Account permanently disabled
+Error: Unable to determine status
+
+4. Auto-Login Feature
+When an account is logged out, the script:
+
+Fills in username and password from Airtable
+Handles 2FA if needed (generates TOTP codes)
+Manages various Instagram popups and consent screens
+Verifies login success
+
+5. Key Features
+
+Concurrent Processing: Can check multiple profiles simultaneously
+Thread Safety: Uses locks to prevent conflicts when multiple threads access shared resources
+Human-like Behavior: Types credentials character by character with delays
+Popup Handling: Manages Instagram's various consent screens and notifications
+Error Recovery: Attempts to restart profiles if they're already running

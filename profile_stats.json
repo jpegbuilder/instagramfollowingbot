@@ -2929,9 +2929,11 @@
     "total_all_time": 0
   },
   "k142jcxs": {
-    "last_run": 0,
-    "today": {},
-    "total_all_time": 0
+    "last_run": 49,
+    "today": {
+      "2025-09-18": 49
+    },
+    "total_all_time": 49
   },
   "k142jcxl": {
     "last_run": 0,
@@ -3034,7 +3036,7 @@
     "total_all_time": 0
   },
   "k13xbdd6": {
-    "last_run": 1,
+    "last_run": 0,
     "today": {
       "2025-09-15": 1
     },
@@ -3091,29 +3093,39 @@
     "total_all_time": 0
   },
   "k140ekt9": {
-    "last_run": 0,
-    "today": {},
-    "total_all_time": 0
+    "last_run": 51,
+    "today": {
+      "2025-09-18": 51
+    },
+    "total_all_time": 51
   },
   "k140ektc": {
-    "last_run": 0,
-    "today": {},
-    "total_all_time": 0
+    "last_run": 1,
+    "today": {
+      "2025-09-18": 1
+    },
+    "total_all_time": 1
   },
   "k140ektd": {
-    "last_run": 0,
-    "today": {},
-    "total_all_time": 0
+    "last_run": 50,
+    "today": {
+      "2025-09-18": 50
+    },
+    "total_all_time": 50
   },
   "k140ektg": {
-    "last_run": 0,
-    "today": {},
-    "total_all_time": 0
+    "last_run": 24,
+    "today": {
+      "2025-09-18": 24
+    },
+    "total_all_time": 24
   },
   "k140ekth": {
-    "last_run": 0,
-    "today": {},
-    "total_all_time": 0
+    "last_run": 24,
+    "today": {
+      "2025-09-18": 24
+    },
+    "total_all_time": 24
   },
   "k140ekti": {
     "last_run": 0,
@@ -3224,8 +3236,10 @@
   },
   "k14omh58": {
     "last_run": 0,
-    "today": {},
-    "total_all_time": 0
+    "today": {
+      "2025-09-19": 6
+    },
+    "total_all_time": 6
   },
   "k144infs": {
     "last_run": 53,
@@ -3321,5 +3335,30 @@
       "2025-09-18": 25
     },
     "total_all_time": 25
+  },
+  "k144ins8": {
+    "last_run": 0,
+    "today": {},
+    "total_all_time": 0
+  },
+  "k144insn": {
+    "last_run": 0,
+    "today": {},
+    "total_all_time": 0
+  },
+  "k144inqk": {
+    "last_run": 0,
+    "today": {},
+    "total_all_time": 0
+  },
+  "k144inrq": {
+    "last_run": 0,
+    "today": {},
+    "total_all_time": 0
+  },
+  "k142jcrh": {
+    "last_run": 0,
+    "today": {},
+    "total_all_time": 0
   }
 }
