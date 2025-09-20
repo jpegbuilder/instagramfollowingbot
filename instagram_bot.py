@@ -758,6 +758,16 @@ class InstagramFollowBot:
             try:
                 chrome_options = Options()
                 chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{self.debug_port}")
+                
+                # Enable 3rd-party cookies for reCAPTCHA to work properly
+                chrome_options.add_argument("--disable-features=BlockThirdPartyCookies")
+                chrome_options.add_experimental_option("prefs", {
+                    "profile.default_content_setting_values.cookies": 1,
+                    "profile.block_third_party_cookies": False
+                })
+                
+                # Enable performance logs via CDP for rqdata extraction
+                # This is more reliable than loggingPrefs capability
 
                 # Method 1: Try to get ChromeDriver path from AdsPower API response
                 chrome_driver_path = None
@@ -768,7 +778,25 @@ class InstagramFollowBot:
                             f"Profile No.{self.profile_id}: Using ChromeDriver from AdsPower API: {chrome_driver_path}")
                         try:
                             service = Service(chrome_driver_path)
-                            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                            
+                            # Try to use selenium-wire for rqdata extraction
+                            try:
+                                from seleniumwire import webdriver as wire_webdriver
+                                self.driver = wire_webdriver.Chrome(service=service, options=chrome_options)
+                                logger.info(f"Profile No.{self.profile_id}: Using selenium-wire for network monitoring")
+                            except ImportError:
+                                # Fallback to regular selenium if selenium-wire not available
+                                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                                logger.info(f"Profile No.{self.profile_id}: Using regular selenium (selenium-wire not available)")
+                            
+                            # Enable CDP for performance logs and rqdata extraction
+                            try:
+                                self.driver.execute_cdp_cmd("Network.enable", {})
+                                self.driver.execute_cdp_cmd("Runtime.enable", {})
+                                logger.info(f"Profile No.{self.profile_id}: CDP enabled for performance monitoring")
+                            except Exception as e:
+                                logger.warning(f"Profile No.{self.profile_id}: Could not enable CDP: {e}")
+                            
                             logger.info(
                                 f"Profile No.{self.profile_id}: Connected to browser successfully using AdsPower ChromeDriver")
                             return True
@@ -781,7 +809,14 @@ class InstagramFollowBot:
                     try:
                         # Try Chrome 137 compatible version
                         service = Service(ChromeDriverManager(version="137.0.7106.61").install())
-                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                        
+                        # Try to use selenium-wire for rqdata extraction
+                        try:
+                            from seleniumwire import webdriver as wire_webdriver
+                            self.driver = wire_webdriver.Chrome(service=service, options=chrome_options)
+                            logger.info(f"Profile No.{self.profile_id}: Using selenium-wire for network monitoring")
+                        except ImportError:
+                            self.driver = webdriver.Chrome(service=service, options=chrome_options)
                         logger.info(f"Profile No.{self.profile_id}: Connected using webdriver-manager (Chrome 137)")
                         return True
                     except Exception as e:
@@ -789,7 +824,14 @@ class InstagramFollowBot:
                         try:
                             # Fallback to Chrome 138
                             service = Service(ChromeDriverManager(version="138.0.7106.61").install())
-                            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                            
+                            # Try to use selenium-wire for rqdata extraction
+                            try:
+                                from seleniumwire import webdriver as wire_webdriver
+                                self.driver = wire_webdriver.Chrome(service=service, options=chrome_options)
+                                logger.info(f"Profile No.{self.profile_id}: Using selenium-wire for network monitoring")
+                            except ImportError:
+                                self.driver = webdriver.Chrome(service=service, options=chrome_options)
                             logger.info(f"Profile No.{self.profile_id}: Connected using webdriver-manager (Chrome 138)")
                             return True
                         except Exception as e2:
@@ -798,7 +840,14 @@ class InstagramFollowBot:
                                 # Last resort - latest version
                                 logger.info(f"Profile No.{self.profile_id}: Trying with latest ChromeDriver version")
                                 service = Service(ChromeDriverManager().install())
-                                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                                
+                                # Try to use selenium-wire for rqdata extraction
+                                try:
+                                    from seleniumwire import webdriver as wire_webdriver
+                                    self.driver = wire_webdriver.Chrome(service=service, options=chrome_options)
+                                    logger.info(f"Profile No.{self.profile_id}: Using selenium-wire for network monitoring")
+                                except ImportError:
+                                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
                                 logger.info(f"Profile No.{self.profile_id}: Connected using webdriver-manager (latest)")
                                 return True
                             except Exception as e3:
@@ -1621,26 +1670,120 @@ class InstagramFollowBot:
             return False
 
     def _click_next_button(self):
-        """Helper method to click Next button"""
+        """Helper method to click Next button using adaptive search"""
         try:
-            next_selectors = [
-                "//button[contains(text(), 'Next')]",
-                "//button[contains(text(), 'Continue')]",
-                "//*[contains(@class, 'button') and contains(text(), 'Next')]"
+            next_texts = [
+                "Next",
+                "Continue", 
+                "Submit",
+                "Confirm",
+                "Verify"
             ]
             
-            for selector in next_selectors:
+            # Create adaptive selectors for any element containing these texts
+            next_selectors = []
+            for text in next_texts:
+                next_selectors.extend([
+                    f"//*[contains(text(), '{text}')]",
+                    f"//*[contains(normalize-space(text()), '{text}')]",
+                    f"//*[text()='{text}']",
+                    f"//*[normalize-space(text())='{text}']"
+                ])
+            
+            # Also add button-specific selectors
+            next_selectors.extend([
+                "//button[@type='submit']",
+                "//input[@type='submit']",
+                "//button[contains(@class, 'submit')]",
+                "//button[contains(@class, 'next')]",
+                "//button[contains(@class, 'continue')]"
+            ])
+            
+            button_clicked = False
+            for i, selector in enumerate(next_selectors):
                 try:
                     button = self.driver.find_element(By.XPATH, selector)
                     if button and button.is_displayed():
-                        button.click()
-                        logger.info(f"Profile No.{self.profile_id}: ✅ Next button clicked")
-                        return True
+                        logger.info(f"Profile No.{self.profile_id}: ✅ Found Next button with selector {i+1}")
+                        
+                        # Try to click the element
+                        try:
+                            button.click()
+                            logger.info(f"Profile No.{self.profile_id}: ✅ Next button clicked")
+                            button_clicked = True
+                            return True
+                        except:
+                            # Try clicking parent element
+                            try:
+                                parent = button.find_element(By.XPATH, "..")
+                                if parent:
+                                    logger.info(f"Profile No.{self.profile_id}: 🔄 Trying to click parent element...")
+                                    parent.click()
+                                    logger.info(f"Profile No.{self.profile_id}: ✅ Parent element clicked")
+                                    button_clicked = True
+                                    return True
+                            except:
+                                # Try JavaScript click
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", button)
+                                    logger.info(f"Profile No.{self.profile_id}: ✅ JavaScript click executed")
+                                    button_clicked = True
+                                    return True
+                                except:
+                                    logger.warning(f"Profile No.{self.profile_id}: ⚠️ All click methods failed for this element")
+                                    continue
                 except NoSuchElementException:
                     continue
             
-            logger.warning(f"Profile No.{self.profile_id}: ⚠️ Next button not found")
-            return False
+            # If we couldn't find a button, search for all clickable elements
+            if not button_clicked:
+                logger.info(f"Profile No.{self.profile_id}: 🔍 Searching for all clickable elements...")
+                try:
+                    all_elements = self.driver.find_elements(By.XPATH, "//*[text() or @value or @placeholder]")
+                    logger.info(f"Profile No.{self.profile_id}: 📋 Found {len(all_elements)} elements with text/value/placeholder:")
+                    
+                    for i, element in enumerate(all_elements):
+                        try:
+                            if element.is_displayed():
+                                text = element.text.strip() if hasattr(element, 'text') and element.text else element.get_attribute('value') or element.get_attribute('placeholder') or 'no text'
+                                tag = element.tag_name
+                                classes = element.get_attribute('class') or 'no class'
+                                
+                                # Show elements with potential button text
+                                if any(keyword in text.lower() for keyword in ['next', 'continue', 'submit', 'confirm', 'verify']):
+                                    logger.info(f"Profile No.{self.profile_id}:    Element {i+1}: <{tag}> '{text}' class='{classes[:50]}...'")
+                                    
+                                    # Try to click this element
+                                    try:
+                                        element.click()
+                                        logger.info(f"Profile No.{self.profile_id}: ✅ Clicked element with text: '{text}'")
+                                        button_clicked = True
+                                        return True
+                                    except:
+                                        # Try parent or JavaScript click
+                                        try:
+                                            parent = element.find_element(By.XPATH, "..")
+                                            parent.click()
+                                            logger.info(f"Profile No.{self.profile_id}: ✅ Clicked parent of element: '{text}'")
+                                            button_clicked = True
+                                            return True
+                                        except:
+                                            try:
+                                                self.driver.execute_script("arguments[0].click();", element)
+                                                logger.info(f"Profile No.{self.profile_id}: ✅ JavaScript clicked element: '{text}'")
+                                                button_clicked = True
+                                                return True
+                                            except:
+                                                continue
+                        except:
+                            continue
+                except Exception as e:
+                    logger.error(f"Profile No.{self.profile_id}: ⚠️ Error searching for elements: {e}")
+            
+            if not button_clicked:
+                logger.warning(f"Profile No.{self.profile_id}: ⚠️ Next button not found")
+            
+            return button_clicked
             
         except Exception as e:
             logger.error(f"Profile No.{self.profile_id}: Error clicking Next button: {str(e)}")

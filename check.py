@@ -561,6 +561,13 @@ class InstagramStatusChecker:
 
             chrome_options = Options()
             chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
+            
+            # Enable 3rd-party cookies for reCAPTCHA to work properly
+            chrome_options.add_argument("--disable-features=BlockThirdPartyCookies")
+            chrome_options.add_experimental_option("prefs", {
+                "profile.default_content_setting_values.cookies": 1,
+                "profile.block_third_party_cookies": False
+            })
 
             # Method 1: Try to get ChromeDriver path from AdsPower API response
             chrome_driver_path = adspower_response['data'].get('webdriver')
