@@ -803,7 +803,7 @@
             </div>
             <div class="stat-item">
                 <div class="stat-value" id="activeProfiles">0</div>
-                <div class="stat-label">Active</div>
+                <div class="stat-label">Active (max 50)</div>
             </div>
             <div class="stat-item">
                 <div class="stat-value" id="pendingProfiles">0</div>
@@ -1928,7 +1928,7 @@
 
         function updateStats(data) {
             document.getElementById('totalProfiles').textContent = data.pagination.total_profiles;
-            document.getElementById('activeProfiles').textContent = data.concurrent_info.active_profiles;
+            document.getElementById('activeProfiles').textContent = `${data.concurrent_info.active_profiles}/${data.concurrent_info.max_concurrent}`;
             document.getElementById('pendingProfiles').textContent = data.concurrent_info.pending_profiles;
             document.getElementById('remainingUsernames').textContent = data.remaining_usernames;
             document.getElementById('connectionStatus').textContent = 'Connected';
@@ -2100,16 +2100,36 @@
                 });
         }
 
+        // Global variable to track if Start All is currently running
+        let isStartAllRunning = false;
+
         function startAllProfiles() {
+            // Prevent double-clicking
+            if (isStartAllRunning) {
+                alert('⚠️ Start All is already running! Please wait for it to complete.');
+                return;
+            }
+
             const filterSummary = `VPS: ${currentVps === 'all' ? 'All VPS' : currentVps}\nPhase: ${currentPhase === 'all' ? 'All Phases' : currentPhase}\nBatch: ${currentBatch === 'all' ? 'All Batches' : currentBatch}\nStatus Filter: ${currentFilter}`;
 
-            if (confirm(`Start all profiles matching current filters?\n\n${filterSummary}\n\nThis will automatically start up to 40 profiles concurrently.`)) {
+            if (confirm(`Start all profiles matching current filters?\n\n${filterSummary}\n\nThis will automatically start up to 50 profiles concurrently (respecting the 50 active profile limit).`)) {
+                // Set flag to prevent double-clicking
+                isStartAllRunning = true;
+                
+                // Disable the button temporarily
+                const startAllBtn = document.querySelector('.btn-start-all');
+                if (startAllBtn) {
+                    startAllBtn.disabled = true;
+                    startAllBtn.textContent = 'Starting...';
+                    startAllBtn.style.opacity = '0.6';
+                }
+
                 // Include all filters in the start all command
                 fetch(`/api/control?action=start_all&vps=${currentVps}&phase=${currentPhase}&batch=${currentBatch}`)
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {
-                            alert(`✅ Start All command sent successfully!\n\nStarting ${data.count || 'all matching'} profiles with 3s delays.\nDashboard will continue updating normally.`);
+                            alert(`✅ Start All command sent successfully!\n\nStarting profiles with 5s delays.\nDashboard will continue updating normally.`);
                             // Immediate refresh to show the changes
                             loadProfiles();
                         } else {
@@ -2119,6 +2139,17 @@
                     .catch(error => {
                         console.error('Error starting all profiles:', error);
                         alert('❌ Error: Could not send start all command. Please try again.');
+                    })
+                    .finally(() => {
+                        // Reset flag and button after 10 seconds
+                        setTimeout(() => {
+                            isStartAllRunning = false;
+                            if (startAllBtn) {
+                                startAllBtn.disabled = false;
+                                startAllBtn.textContent = 'Start All';
+                                startAllBtn.style.opacity = '1';
+                            }
+                        }, 10000); // 10 seconds cooldown
                     });
             }
         }
@@ -2668,8 +2699,8 @@
                 .then(() => {
                     console.log('Connection test passed, loading profiles...');
                     loadProfiles();
-                    // Start auto-refresh with longer interval to reduce server load
-                    autoRefreshInterval = setInterval(loadProfiles, 5000); // Increased from 3s to 5s
+                    // Start auto-refresh with adaptive interval based on active profiles
+                    autoRefreshInterval = setInterval(loadProfiles, 5000); // 5s to reduce load
                 })
                 .catch(error => {
                     console.error('Initial connection test failed:', error);

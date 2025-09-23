@@ -60,6 +60,14 @@ pending_profiles_queue = []
 active_profiles_count = 0
 username_update_counter = 0  # Track when to update file
 
+# Cache for statistics to improve performance
+stats_cache = {
+    'active_count': 0,
+    'pending_count': 0,
+    'last_update': 0
+}
+stats_cache_lock = threading.Lock()
+
 # Removed dashboard cache - we'll read directly from Airtable and files
 
 # Separate thread pools for different operations
@@ -1633,21 +1641,83 @@ class ConcurrencyManager:
 
     @staticmethod
     def get_active_profiles_count():
-        """Get number of currently active profiles"""
-        global active_profiles_count
-        with concurrent_lock:
+        """Get number of currently Running profiles (should never exceed 50) - with caching"""
+        global active_profiles_count, stats_cache
+        import time
+        
+        current_time = time.time()
+        
+        # Check cache first (valid for 2 seconds)
+        with stats_cache_lock:
+            if current_time - stats_cache['last_update'] < 2:
+                return stats_cache['active_count']
+        
+        # Use a single lock for better performance
+        with profiles_lock:
             count = 0
-            with profiles_lock:
-                for pid, info in profiles.items():
-                    if info['status'] in ['Running', 'Queueing']:
-                        count += 1
+            for pid, info in profiles.items():
+                # Count only profiles that are Running
+                if info['status'] == 'Running':
+                    count += 1
             active_profiles_count = count
+            
+            # Update cache
+            with stats_cache_lock:
+                stats_cache['active_count'] = count
+                stats_cache['last_update'] = current_time
+            
+            return count
+
+    @staticmethod
+    def get_pending_profiles_count():
+        """Get number of currently Queueing profiles (since Running is limited to 50) - with caching"""
+        global stats_cache
+        import time
+        
+        current_time = time.time()
+        
+        # Check cache first (valid for 2 seconds)
+        with stats_cache_lock:
+            if current_time - stats_cache['last_update'] < 2:
+                return stats_cache['pending_count']
+        
+        # Use a single lock for better performance
+        with profiles_lock:
+            count = 0
+            for pid, info in profiles.items():
+                # Count only profiles that are Queueing
+                if info['status'] == 'Queueing':
+                    count += 1
+            
+            # Update cache
+            with stats_cache_lock:
+                stats_cache['pending_count'] = count
+                stats_cache['last_update'] = current_time
+            
+            return count
+
+    @staticmethod
+    def get_total_working_profiles_count():
+        """Get total number of profiles that are Running or Queueing (for concurrent limit)"""
+        # Use only profiles_lock for better performance
+        with profiles_lock:
+            count = 0
+            for pid, info in profiles.items():
+                # Count profiles that are Running or Queueing (for concurrent limit)
+                if info['status'] in ['Running', 'Queueing']:
+                    count += 1
             return count
 
     @staticmethod
     def can_start_new_profile():
-        """Check if we can start a new profile"""
-        return ConcurrencyManager.get_active_profiles_count() < MAX_CONCURRENT_PROFILES
+        """Check if we can start a new profile (only Running count matters for the limit)"""
+        # Count only Running profiles for the 50 limit - use single lock
+        with profiles_lock:
+            running_count = 0
+            for pid, info in profiles.items():
+                if info['status'] == 'Running':
+                    running_count += 1
+            return running_count < MAX_CONCURRENT_PROFILES
 
     @staticmethod
     def add_to_pending_queue(profile_id):
@@ -1666,20 +1736,25 @@ class ConcurrencyManager:
             if not pending_profiles_queue:
                 return False
 
-            active_count = ConcurrencyManager.get_active_profiles_count()
-            logger.info(
-                f"Checking pending queue. Active: {active_count}/{MAX_CONCURRENT_PROFILES}, Pending: {len(pending_profiles_queue)}")
+        # Get counts outside of concurrent_lock to avoid nested locking
+        active_count = ConcurrencyManager.get_active_profiles_count()
+        pending_count = ConcurrencyManager.get_pending_profiles_count()
+        total_working = ConcurrencyManager.get_total_working_profiles_count()
+        logger.info(
+            f"Checking pending queue. Active: {active_count}, Pending: {pending_count}, Total working: {total_working}/{MAX_CONCURRENT_PROFILES}, Pending queue: {len(pending_profiles_queue)}")
 
-            if ConcurrencyManager.can_start_new_profile():
-                next_profile = pending_profiles_queue.pop(0)
-                logger.info(f"Starting pending profile: {next_profile}")
+        if ConcurrencyManager.can_start_new_profile():
+            with concurrent_lock:
+                if pending_profiles_queue:  # Double-check queue is not empty
+                    next_profile = pending_profiles_queue.pop(0)
+                    logger.info(f"Starting pending profile: {next_profile}")
 
-                # Submit to executor instead of direct call
-                profile_executor.submit(ProfileRunner.start_profile_internal, next_profile)
-                return True
-            else:
-                logger.info(f"Cannot start pending profile - max concurrent limit reached")
-                return False
+                    # Submit to executor instead of direct call
+                    profile_executor.submit(ProfileRunner.start_profile_internal, next_profile)
+                    return True
+        else:
+            logger.info(f"Cannot start pending profile - max concurrent limit reached")
+        return False
 
     @staticmethod
     def monitor_and_start_pending():
@@ -1743,6 +1818,9 @@ class ProfileRunner:
             profiles[key]['status'] = 'Running'
             profiles[key]['stop_requested'] = False
 
+        # Update active count when status changes to Running
+        ConcurrencyManager.get_active_profiles_count()
+        
         StatsManager.reset_last_run_count(pid)
 
         # Get configuration
@@ -2178,6 +2256,10 @@ class ProfileRunner:
 
         t.start()
         logger.info(f"Profile {pid} (key: {key}) started (max {max_follows} follows)")
+        
+        # Update active count immediately after starting
+        ConcurrencyManager.get_active_profiles_count()
+        
         return True
 
 
@@ -2348,6 +2430,22 @@ def start_all_profiles_backend(vps_filter='all', phase_filter='all', batch_filte
     def _start_all_async():
         """Run the actual start process async"""
         try:
+            # Get current Running profiles count (only Running matters for the 50 limit)
+            current_running = 0
+            with profiles_lock:
+                for pid, info in profiles.items():
+                    if info['status'] == 'Running':
+                        current_running += 1
+            
+            current_queueing = ConcurrencyManager.get_pending_profiles_count()
+            logger.info(f"Current Running profiles: {current_running}/{MAX_CONCURRENT_PROFILES}, Queueing: {current_queueing}")
+            
+            # Calculate how many profiles we can start (only Running count matters)
+            available_slots = MAX_CONCURRENT_PROFILES - current_running
+            if available_slots <= 0:
+                logger.info(f"Cannot start any profiles - max concurrent limit reached ({current_running}/{MAX_CONCURRENT_PROFILES})")
+                return
+
             # Get all alive profiles
             alive_profiles = []
 
@@ -2390,7 +2488,14 @@ def start_all_profiles_backend(vps_filter='all', phase_filter='all', batch_filte
             
             alive_profiles.sort(key=get_sort_key)
 
-            logger.info(f"Starting {len(alive_profiles)} profiles in order: {alive_profiles[:5]}...")
+            # Limit to available slots (max 50 active profiles)
+            profiles_to_start = alive_profiles[:available_slots]
+            
+            logger.info(f"Found {len(alive_profiles)} eligible profiles, will start {len(profiles_to_start)} (limited by {MAX_CONCURRENT_PROFILES} max concurrent)")
+
+            if not profiles_to_start:
+                logger.info("No profiles to start after applying concurrent limit")
+                return
 
             # Get delay config
             config = ConfigManager.load_config() or {}
@@ -2399,20 +2504,22 @@ def start_all_profiles_backend(vps_filter='all', phase_filter='all', batch_filte
 
             # Start in small batches
             batch_size = 2
-            for i in range(0, len(alive_profiles), batch_size):
-                batch = alive_profiles[i:i + batch_size]
+            for i in range(0, len(profiles_to_start), batch_size):
+                batch = profiles_to_start[i:i + batch_size]
 
                 logger.info(f"Starting batch: {batch}")
 
                 for pid in batch:
                     ProfileController.start_profile(pid)
+                    # Update active count after each profile start
+                    ConcurrencyManager.get_active_profiles_count()
                     time.sleep(5)  # 5 second delay between each profile
 
                 # Delay between batches (optional, you can remove this if you want consistent 5s between all)
-                if i + batch_size < len(alive_profiles):
+                if i + batch_size < len(profiles_to_start):
                     time.sleep(0)  # No additional delay between batches since we have 5s between profiles
 
-            logger.info("Start All completed")
+            logger.info(f"Start All completed - started {len(profiles_to_start)} profiles")
 
         except Exception as e:
             logger.error(f"Error in start all: {e}")
@@ -2638,8 +2745,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             page_profiles = filtered_profiles
 
             # Get counts
-            active_count = ConcurrencyManager.get_active_profiles_count()
-            pending_count = len(pending_profiles_queue)
+            active_count = ConcurrencyManager.get_active_profiles_count()  # Only Running
+            pending_count = ConcurrencyManager.get_pending_profiles_count()  # Only Queueing
 
             # Build response
             response = {
