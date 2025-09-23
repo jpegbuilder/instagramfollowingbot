@@ -512,6 +512,12 @@
             color: white !important;
             box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3) !important;
         }
+
+        .btn-stop-all {
+            background: linear-gradient(45deg, #dc3545, #e74c3c) !important;
+            color: white !important;
+            box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3) !important;
+        }
         .btn-start-selected {
             background: linear-gradient(45deg, #20c997, #1dd1a1) !important;
             color: white !important;
@@ -828,6 +834,7 @@
                 <button class="control-btn btn-start-all" onclick="startAllProfiles()">Start All</button>
                 <button class="control-btn btn-start-selected" onclick="startSelectedProfiles()">Start Selected</button>
                 <button class="control-btn btn-stop-selected" onclick="stopSelectedProfiles()">Stop Selected</button>
+                <button class="control-btn btn-stop-all" onclick="stopAllProfiles()">Stop All</button>
                 <button class="control-btn btn-test-selected" id="testSelectedBtn" style="display: none;" onclick="testSelectedProfiles()">Test Selected</button>
             </div>
         </div>
@@ -2150,6 +2157,26 @@
                                 startAllBtn.style.opacity = '1';
                             }
                         }, 10000); // 10 seconds cooldown
+                    });
+            }
+        }
+
+        function stopAllProfiles() {
+            if (confirm('Stop all running profiles and disable auto replacement?\n\nThis will stop all currently running profiles and prevent new ones from starting automatically.')) {
+                fetch('/api/control?action=stop_all')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert(`✅ Stop All command sent successfully!\n\nAll profiles stopped and auto replacement disabled.`);
+                            // Immediate refresh to show the changes
+                            loadProfiles();
+                        } else {
+                            alert('❌ Error: Failed to stop all profiles. Please try again.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error stopping all profiles:', error);
+                        alert('❌ Error: Could not send stop all command. Please try again.');
                     });
             }
         }

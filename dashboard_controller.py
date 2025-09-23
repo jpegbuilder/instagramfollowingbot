@@ -68,6 +68,10 @@ stats_cache = {
 }
 stats_cache_lock = threading.Lock()
 
+# Flag to control automatic profile replacement (only after Start All)
+auto_replacement_enabled = False
+auto_replacement_lock = threading.Lock()
+
 # Removed dashboard cache - we'll read directly from Airtable and files
 
 # Separate thread pools for different operations
@@ -1640,6 +1644,29 @@ class ConcurrencyManager:
     """Manages concurrent profile execution"""
 
     @staticmethod
+    def enable_auto_replacement():
+        """Enable automatic profile replacement (called after Start All)"""
+        global auto_replacement_enabled
+        with auto_replacement_lock:
+            auto_replacement_enabled = True
+            logger.info("Auto replacement enabled - system will maintain 50 active profiles")
+
+    @staticmethod
+    def disable_auto_replacement():
+        """Disable automatic profile replacement"""
+        global auto_replacement_enabled
+        with auto_replacement_lock:
+            auto_replacement_enabled = False
+            logger.info("Auto replacement disabled")
+
+    @staticmethod
+    def is_auto_replacement_enabled():
+        """Check if automatic replacement is enabled"""
+        global auto_replacement_enabled
+        with auto_replacement_lock:
+            return auto_replacement_enabled
+
+    @staticmethod
     def get_active_profiles_count():
         """Get number of currently Running profiles (should never exceed 50) - with caching"""
         global active_profiles_count, stats_cache
@@ -1757,6 +1784,61 @@ class ConcurrencyManager:
         return False
 
     @staticmethod
+    def maintain_active_profile_limit():
+        """Maintain the active profile limit by starting new profiles when others finish/block"""
+        try:
+            # Check if auto replacement is enabled
+            if not ConcurrencyManager.is_auto_replacement_enabled():
+                return
+            
+            # Get current counts
+            running_count = 0
+            queueing_count = 0
+            with profiles_lock:
+                for pid, info in profiles.items():
+                    if info['status'] == 'Running':
+                        running_count += 1
+                    elif info['status'] == 'Queueing':
+                        queueing_count += 1
+            
+            total_working = running_count + queueing_count
+            
+            # If we have less than 50 working profiles, try to start more
+            if total_working < MAX_CONCURRENT_PROFILES:
+                available_slots = MAX_CONCURRENT_PROFILES - total_working
+                logger.info(f"Maintaining limit: Running={running_count}, Queueing={queueing_count}, Available slots={available_slots}")
+                
+                # Find profiles that can be started
+                startable_profiles = []
+                with profiles_lock:
+                    for pid, info in profiles.items():
+                        # Only start profiles that are not running, queueing, or blocked/suspended
+                        if info['status'] in ['Not Running', 'Finished', 'Stopped']:
+                            # Check Airtable status
+                            airtable_status = info.get('airtable_status', 'Alive')
+                            if isinstance(airtable_status, list):
+                                airtable_status = airtable_status[0] if airtable_status else 'Alive'
+                            
+                            # Only start if Airtable status is Alive or Logged In
+                            if airtable_status in ['Alive', 'Logged In ⭐️']:
+                                startable_profiles.append(pid)
+                
+                # Start up to available_slots profiles
+                started_count = 0
+                for pid in startable_profiles[:available_slots]:
+                    if ConcurrencyManager.can_start_new_profile():
+                        logger.info(f"Auto-starting profile {pid} to maintain limit")
+                        ProfileController.start_profile(pid)
+                        started_count += 1
+                        time.sleep(0.5)  # Small delay between starts
+                
+                if started_count > 0:
+                    logger.info(f"Auto-started {started_count} profiles to maintain limit")
+                    
+        except Exception as e:
+            logger.error(f"Error in maintain_active_profile_limit: {e}")
+
+    @staticmethod
     def monitor_and_start_pending():
         """Background thread to monitor and start pending profiles"""
         while True:
@@ -1769,6 +1851,9 @@ class ConcurrencyManager:
                 # Check for pending profiles
                 if pending_profiles_queue:
                     ConcurrencyManager.start_next_pending_profile()
+
+                # Check if we need to start more profiles to maintain the limit
+                ConcurrencyManager.maintain_active_profile_limit()
 
                 # Clean up stuck profiles
                 cleanup_finished_profiles()
@@ -2171,6 +2256,9 @@ class ProfileRunner:
             # Try to start next pending
             time.sleep(0.5)  # Small delay
             ConcurrencyManager.start_next_pending_profile()
+            
+            # Also try to maintain the active profile limit
+            ConcurrencyManager.maintain_active_profile_limit()
 
     @staticmethod
     def start_profile_internal(pid):
@@ -2520,6 +2608,9 @@ def start_all_profiles_backend(vps_filter='all', phase_filter='all', batch_filte
                     time.sleep(0)  # No additional delay between batches since we have 5s between profiles
 
             logger.info(f"Start All completed - started {len(profiles_to_start)} profiles")
+            
+            # Enable auto replacement after Start All
+            ConcurrencyManager.enable_auto_replacement()
 
         except Exception as e:
             logger.error(f"Error in start all: {e}")
@@ -2564,6 +2655,8 @@ def cleanup_finished_profiles():
             logger.info(f"Cleaned up {cleanup_count} stuck profiles")
             # Try to start pending
             ConcurrencyManager.start_next_pending_profile()
+            # Also try to maintain the active profile limit
+            ConcurrencyManager.maintain_active_profile_limit()
 
     except Exception as e:
         logger.error(f"Error during cleanup: {e}")
@@ -2824,6 +2917,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # Return success immediately without waiting
                 self._set_headers()
                 self.wfile.write(json.dumps({'success': success, 'count': count}).encode())
+                return
+            elif act == 'enable_auto_replacement':
+                ConcurrencyManager.enable_auto_replacement()
+                self._set_headers()
+                self.wfile.write(json.dumps({'success': True, 'message': 'Auto replacement enabled'}).encode())
+                return
+            elif act == 'disable_auto_replacement':
+                ConcurrencyManager.disable_auto_replacement()
+                self._set_headers()
+                self.wfile.write(json.dumps({'success': True, 'message': 'Auto replacement disabled'}).encode())
+                return
+            elif act == 'stop_all':
+                ConcurrencyManager.disable_auto_replacement()
+                # Stop all running profiles
+                with profiles_lock:
+                    for pid, info in profiles.items():
+                        if info['status'] in ['Running', 'Queueing']:
+                            info['stop_requested'] = True
+                self._set_headers()
+                self.wfile.write(json.dumps({'success': True, 'message': 'All profiles stopped and auto replacement disabled'}).encode())
                 return
             else:
                 self._set_headers()
