@@ -247,7 +247,7 @@
   "k144inm1": "blocked",
   "k144inm6": null,
   "k144inm5": null,
-  "k144inio": "blocked",
+  "k144inio": "suspended",
   "k144injm": "blocked",
   "k144indn": "suspended",
   "k144injj": "blocked",
@@ -282,5 +282,12 @@
   "k13vk7pl": "suspended",
   "k13y8fxc": "blocked",
   "k140eksm": "suspended",
-  "k13xbdaf": "blocked"
+  "k13xbdaf": "blocked",
+  "k144infr": "suspended",
+  "k144inis": "suspended",
+  "k144ing5": "suspended",
+  "k144inly": "suspended",
+  "k144inlb": "suspended",
+  "k144inp0": "suspended",
+  "1157": "something_wrong"
 }

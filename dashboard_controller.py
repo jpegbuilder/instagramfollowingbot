@@ -884,6 +884,49 @@ class StatusManager:
             logger.error(f"Error marking profile {profile_id} as suspended: {e}")
 
     @staticmethod
+    def mark_profile_something_wrong(profile_id):
+        """Mark profile as blocked due to Something went wrong error"""
+        try:
+            pid_str = str(profile_id)
+            profile_number = None
+
+            # Update in-memory - search by AdsPower ID first, then by other identifiers
+            with profiles_lock:
+                if pid_str in profiles:
+                    info = profiles[pid_str]
+                    info['status'] = 'Blocked'
+                    info['stop_requested'] = True
+                    info['airtable_status'] = 'Something went wrong Checkpoint'
+                    profile_number = info.get('profile_number')
+                    logger.info(f"Profile {profile_id} found by AdsPower ID and marked as BLOCKED with Something went wrong Checkpoint")
+                else:
+                    # Try to find by profile_number or adspower_serial
+                    found = False
+                    for key, info in profiles.items():
+                        if info.get('profile_number') == pid_str or info.get('adspower_serial') == pid_str:
+                            info['status'] = 'Blocked'
+                            info['stop_requested'] = True
+                            info['airtable_status'] = 'Something went wrong Checkpoint'
+                            profile_number = info.get('profile_number')
+                            logger.info(f"Profile {profile_id} found by profile_number/adspower_serial and marked as BLOCKED with Something went wrong Checkpoint")
+                            found = True
+                            break
+                    
+                    if not found:
+                        logger.warning(f"Profile {profile_id} not found in profiles cache for Something went wrong status update")
+                        return False
+
+            # Write status to file asynchronously
+            AsyncFileManager.write_status_async({pid_str: 'blocked'})
+
+            logger.info(f"Profile {profile_id} BLOCKED due to Something went wrong - status: Blocked, airtable_status: Something went wrong Checkpoint")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error marking profile {profile_id} as Something went wrong: {e}")
+            return False
+
+    @staticmethod
     def revive_profile_status(profile_id):
         """Revive a blocked/suspended profile back to alive"""
         try:
@@ -2084,6 +2127,23 @@ class ProfileRunner:
                 if success:
                     StatsManager.increment_follow_count(pid)
                     follows_this_hour += 1
+
+                # Check for Something went wrong error
+                if not success and hasattr(bot, 'something_went_wrong') and bot.something_went_wrong:
+                    logger.error(f"Profile {pid}: Instagram error page detected - 'Something went wrong'")
+                    
+                    # Update local profile status to Blocked
+                    with profiles_lock:
+                        if key in profiles:
+                            profiles[key]['status'] = 'Blocked'
+                            profiles[key]['stop_requested'] = True
+                            profiles[key]['airtable_status'] = 'Something went wrong Checkpoint'
+                            logger.info(f"Profile {pid}: Updated local status to Blocked with Something went wrong Checkpoint")
+                    
+                    # Stop the profile
+                    bot.stop_profile()
+                    logger.info(f"Profile {pid}: Stopped profile due to Something went wrong error")
+                    return
 
                 # Check blocks
                 if bot.is_follow_blocked:
