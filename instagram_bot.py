@@ -128,6 +128,37 @@ def update_airtable_status(profile_number, status):
         return False
 
 
+def set_airtable_status_only(profile_number, status):
+    """Set only one status in Airtable, replacing all existing statuses"""
+    if not AIRTABLE_AVAILABLE:
+        logger.warning(f"Profile {profile_number}: Airtable not available, cannot set status to '{status}'")
+        return False
+
+    try:
+        api = Api(AIRTABLE_PERSONAL_ACCESS_TOKEN)
+        table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+
+        # Find the profile record
+        records = table.all(formula=f"{{Profile}} = {profile_number}")
+
+        if records:
+            record_id = records[0]['id']
+            
+            # Set only the specified status, replacing all others
+            update_data = {'Status': [status]}
+            
+            result = table.update(record_id, update_data)
+            logger.info(f"Profile {profile_number}: Successfully set Airtable status to only: {status}")
+            return True
+        else:
+            logger.warning(f"Profile {profile_number}: Profile not found in Airtable for status update")
+            return False
+
+    except Exception as e:
+        logger.error(f"Profile {profile_number}: Error setting Airtable status to '{status}': {str(e)}")
+        return False
+
+
 def remove_airtable_status(profile_number, status):
     """Remove a specific status from Airtable multi-select field"""
     if not AIRTABLE_AVAILABLE:
@@ -554,6 +585,7 @@ class InstagramFollowBot:
         self.is_follow_blocked = False
         self.window_recovery_attempts = 0
         self.max_window_recovery_attempts = 3
+        self.something_went_wrong = False
         self.is_test_mode = False  # Flag to indicate test mode
         self.successful_follows_count = 0  # Track successful follows
         self.followed_usernames = []  # Track usernames that were successfully followed
@@ -882,6 +914,46 @@ class InstagramFollowBot:
             
         except Exception as e:
             logger.error(f"Profile No.{self.profile_id}: Error during tab cleanup: {str(e)}")
+            return False
+
+    def update_local_profile_status_to_blocked(self):
+        """Update local profile status to Blocked in the profiles cache"""
+        try:
+            # Import here to avoid circular imports
+            from dashboard_controller import profiles, profiles_lock
+            
+            # Find the correct profile key in the cache
+            # self.profile_id is the adspower_serial (1157), but we need to find the profile by this value
+            profile_key = None
+            with profiles_lock:
+                for key, info in profiles.items():
+                    if (info.get('profile_number') == str(self.profile_id) or 
+                        info.get('adspower_serial') == str(self.profile_id)):
+                        profile_key = key
+                        break
+            
+            if not profile_key:
+                logger.warning(f"Profile No.{self.profile_id}: Not found in profiles cache for status update")
+                # Log available keys for debugging
+                with profiles_lock:
+                    available_keys = list(profiles.keys())[:5]
+                    logger.warning(f"Available profile keys (first 5): {available_keys}")
+                return False
+            
+            # Update the profile status
+            with profiles_lock:
+                if profile_key in profiles:
+                    profiles[profile_key]['status'] = 'Blocked'
+                    profiles[profile_key]['stop_requested'] = True
+                    profiles[profile_key]['airtable_status'] = 'Something went wrong Checkpoint'
+                    logger.info(f"Profile No.{self.profile_id}: Updated profile {profile_key} status to Blocked with Something went wrong Checkpoint")
+                    return True
+                else:
+                    logger.warning(f"Profile No.{self.profile_id}: Profile {profile_key} not found in cache after key lookup")
+                    return False
+            
+        except Exception as e:
+            logger.error(f"Profile No.{self.profile_id}: Error updating local profile status to Blocked: {str(e)}")
             return False
 
     def stop_profile(self):
@@ -1437,6 +1509,22 @@ class InstagramFollowBot:
             # Check if profile exists
             if "Sorry, this page isn't available" in self.driver.page_source:
                 logger.warning(f"Profile No.{self.profile_id}: User {username} not found")
+                return False
+            
+            # Check for "Something went wrong" error page
+            if "Something went wrong" in self.driver.page_source and "There's an issue and the page could not be loaded" in self.driver.page_source:
+                logger.error(f"Profile No.{self.profile_id}: Instagram error page detected - 'Something went wrong'")
+                
+                # Set Airtable status to only "Something went wrong Checkpoint" (replacing all other statuses)
+                set_airtable_status_only(self.profile_id, "Something went wrong Checkpoint")
+                
+                # Set a flag to indicate Something went wrong error
+                self.something_went_wrong = True
+                
+                # Close the profile
+                logger.info(f"Profile No.{self.profile_id}: Closing profile due to Instagram error")
+                self.stop_profile()
+                
                 return False
 
             # Look for follow button
