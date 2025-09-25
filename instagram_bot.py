@@ -1526,6 +1526,40 @@ class InstagramFollowBot:
                 self.stop_profile()
                 
                 return False
+            
+            # Check for "Aw, Snap!" error page (Chrome crash/access violation)
+            if ("Aw, Snap!" in self.driver.page_source and 
+                ("Something went wrong while displaying this webpage" in self.driver.page_source or 
+                 "STATUS_ACCESS_VIOLATION" in self.driver.page_source)):
+                logger.error(f"Profile No.{self.profile_id}: Chrome error page detected - 'Aw, Snap!' (STATUS_ACCESS_VIOLATION)")
+                
+                # Set Airtable status to only "Something went wrong Checkpoint" (replacing all other statuses)
+                set_airtable_status_only(self.profile_id, "Something went wrong Checkpoint")
+                
+                # Set a flag to indicate Something went wrong error
+                self.something_went_wrong = True
+                
+                # Close the profile
+                logger.info(f"Profile No.{self.profile_id}: Closing profile due to Chrome error")
+                self.stop_profile()
+                
+                return False
+            
+            # Check for "Take a quick pause" error page (Instagram rate limiting)
+            if "Take a quick pause" in self.driver.page_source:
+                logger.error(f"Profile No.{self.profile_id}: Instagram rate limiting detected - 'Take a quick pause'")
+                
+                # Add "Take a Break Checkpoint" status to existing statuses
+                update_airtable_status(self.profile_id, "Take a Break Checkpoint")
+                
+                # Set a flag to indicate Something went wrong error
+                self.something_went_wrong = True
+                
+                # Close the profile
+                logger.info(f"Profile No.{self.profile_id}: Closing profile due to Instagram rate limiting")
+                self.stop_profile()
+                
+                return False
 
             # Look for follow button
             follow_selectors = [
@@ -1630,6 +1664,28 @@ class InstagramFollowBot:
             else:
                 logger.warning(f"Profile No.{self.profile_id}: Follow button not found for {username}")
                 self.consecutive_follow_errors += 1
+
+                # Check for error pages that might have appeared after navigation
+                page_source = self.driver.page_source
+                
+                if "Take a quick pause" in page_source:
+                    logger.error(f"Profile No.{self.profile_id}: Instagram rate limiting detected - 'Take a quick pause'")
+                    update_airtable_status(self.profile_id, "Take a Break Checkpoint")
+                    self.something_went_wrong = True
+                    self.stop_profile()
+                    return False
+                elif "Something went wrong" in page_source and "There's an issue and the page could not be loaded" in page_source:
+                    logger.error(f"Profile No.{self.profile_id}: Instagram error page detected - 'Something went wrong'")
+                    set_airtable_status_only(self.profile_id, "Something went wrong Checkpoint")
+                    self.something_went_wrong = True
+                    self.stop_profile()
+                    return False
+                elif "Aw, Snap!" in page_source:
+                    logger.error(f"Profile No.{self.profile_id}: Chrome error page detected - 'Aw, Snap!'")
+                    set_airtable_status_only(self.profile_id, "Something went wrong Checkpoint")
+                    self.something_went_wrong = True
+                    self.stop_profile()
+                    return False
 
                 # Check for suspension after 3 consecutive errors
                 if self.consecutive_follow_errors >= 3:
