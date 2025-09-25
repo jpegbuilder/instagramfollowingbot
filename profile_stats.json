@@ -2917,11 +2917,12 @@
     "total_all_time": 18
   },
   "k144inea": {
-    "last_run": 18,
+    "last_run": 1,
     "today": {
-      "2025-09-15": 18
+      "2025-09-15": 18,
+      "2025-09-25": 1
     },
-    "total_all_time": 18
+    "total_all_time": 19
   },
   "k144int5": {
     "last_run": 0,
@@ -3847,7 +3848,7 @@
     "total_all_time": 0
   },
   "k144ins3": {
-    "last_run": 1,
+    "last_run": 0,
     "today": {
       "2025-09-25": 1
     },

@@ -64,6 +64,7 @@ file_lock = threading.Lock()
 # Airtable status constants - using exact names from Airtable
 AIRTABLE_STATUSES = {
     'LOGGED_IN': 'Logged In ⭐️',
+    'LOGGED_OUT': 'Logged Out',
     'FOLLOW_BLOCK': 'Follow Block',
     'SUSPENDED': 'Suspended',
     'WAITING_FOR_APPEAL': 'Waiting for Appeal',
@@ -583,6 +584,7 @@ class InstagramFollowBot:
         self.is_suspended = False
         self.consecutive_follow_blocks = 0
         self.is_follow_blocked = False
+        self.is_blocked = False  # For disabled account
         self.window_recovery_attempts = 0
         self.max_window_recovery_attempts = 3
         self.something_went_wrong = False
@@ -1131,11 +1133,106 @@ class InstagramFollowBot:
                 except NoSuchElementException:
                     continue
 
+            # Method 4: Check for disabled account page
+            if self.check_if_account_disabled():
+                return True
+
             return False
 
         except Exception as e:
             logger.warning(f"Profile No.{self.profile_id}: Error checking suspension: {str(e)[:100]}...")
             return False
+
+    def check_if_account_disabled(self):
+        """Check if the current Instagram account is disabled"""
+        try:
+            current_url = self.driver.current_url
+
+            # Method 1: Check URL for disabled account redirect
+            if "/accounts/disabled/" in current_url:
+                logger.error(f"Profile No.{self.profile_id}: Account is DISABLED (detected via URL)")
+                self.handle_disabled_account()
+                return True
+
+            # Method 2: Check page source for disabled account keywords
+            page_source = self.driver.page_source.lower()
+            disabled_indicators = [
+                "we disabled your account",
+                "your account has been disabled",
+                "account disabled",
+                "disabled on",
+                "we've disabled your account",
+                "you no longer have access to",
+                "why this happened",
+                "what this means",
+                "what you can do"
+            ]
+
+            # Check if multiple indicators are present (more reliable)
+            found_indicators = [indicator for indicator in disabled_indicators if indicator in page_source]
+            if len(found_indicators) >= 3:  # Need at least 3 indicators to be sure
+                logger.error(f"Profile No.{self.profile_id}: Account is DISABLED (detected via page content: {found_indicators})")
+                self.handle_disabled_account()
+                return True
+
+            # Method 3: Check for specific disabled account page elements
+            disabled_selectors = [
+                "//h1[contains(text(), 'We disabled your account')]",
+                "//h2[contains(text(), 'We disabled your account')]",
+                "//*[contains(text(), 'We disabled your account')]",
+                "//*[contains(text(), 'disabled on')]",
+                "//*[contains(text(), 'You no longer have access to')]"
+            ]
+
+            for selector in disabled_selectors:
+                try:
+                    element = self.driver.find_element(By.XPATH, selector)
+                    if element:
+                        logger.error(f"Profile No.{self.profile_id}: Account is DISABLED (detected via page element)")
+                        self.handle_disabled_account()
+                        return True
+                except NoSuchElementException:
+                    continue
+
+            return False
+
+        except Exception as e:
+            logger.warning(f"Profile No.{self.profile_id}: Error checking if account is disabled: {str(e)[:100]}...")
+            return False
+
+    def handle_disabled_account(self):
+        """Handle disabled account by setting appropriate statuses and stopping profile"""
+        try:
+            # Set local blocked status
+            self.is_blocked = True
+            
+            # Clear all existing statuses and set only LOGGED_OUT and CANT_ACCESS
+            old_statuses_to_remove = [
+                AIRTABLE_STATUSES['LOGGED_IN'],
+                AIRTABLE_STATUSES['FOLLOW_BLOCK'],
+                AIRTABLE_STATUSES['WAITING_FOR_APPEAL'],
+                AIRTABLE_STATUSES['SUSPENDED'],
+                AIRTABLE_STATUSES['BANNED'],
+                AIRTABLE_STATUSES['ALIVE'],
+                AIRTABLE_STATUSES['SOMETHING_WRONG'],
+                AIRTABLE_STATUSES['WRONG_PASSWORD'],
+                AIRTABLE_STATUSES['BAD_PROXY']
+            ]
+            
+            for status in old_statuses_to_remove:
+                remove_airtable_status(self.profile_id, status)
+            
+            # Set only the required statuses
+            set_airtable_status_only(self.profile_id, AIRTABLE_STATUSES['LOGGED_OUT'])
+            update_airtable_status(self.profile_id, AIRTABLE_STATUSES['CANT_ACCESS'])
+            
+            logger.info(f"Profile No.{self.profile_id}: Set statuses to 'Logged Out' and 'Can't Access' for disabled account (is_blocked = True)")
+            
+            # Stop the profile
+            self.stop_profile()
+            
+        except Exception as e:
+            logger.error(f"Profile No.{self.profile_id}: Error handling disabled account: {str(e)}")
 
     def check_if_public_account(self):
         """Check if the current profile page shows a public account"""
@@ -1760,9 +1857,10 @@ class InstagramFollowBot:
 
         follow_count = 0
         while True:
-            # Check if account is suspended
-            if self.is_suspended:
-                logger.error(f"Profile No.{self.profile_id}: Account is suspended. Stopping bot for this profile.")
+            # Check if account is suspended or blocked
+            if self.is_suspended or self.is_blocked:
+                status_msg = "suspended" if self.is_suspended else "blocked (disabled)"
+                logger.error(f"Profile No.{self.profile_id}: Account is {status_msg}. Stopping bot for this profile.")
                 results['suspension_stopped'] = True
                 break
 
@@ -1797,12 +1895,12 @@ class InstagramFollowBot:
             else:
                 results['failed'].append(username)
 
-                # If account is suspended or follow blocked, break the loop
-                if self.is_suspended or self.is_follow_blocked:
+                # If account is suspended, follow blocked, or disabled, break the loop
+                if self.is_suspended or self.is_follow_blocked or self.is_blocked:
                     break
 
-            # Add delay between follows (skip if suspended or blocked)
-            if not self.is_suspended and not self.is_follow_blocked:
+            # Add delay between follows (skip if suspended, blocked, or disabled)
+            if not self.is_suspended and not self.is_follow_blocked and not self.is_blocked:
                 if fast_mode:
                     delay = random.uniform(delay_range[0], delay_range[1])
                 else:
@@ -1878,9 +1976,10 @@ class InstagramFollowBot:
             logger.info(f"Profile No.{self.profile_id}: Bot completed. Results: {results}")
 
             # If this was a test mode and completed successfully, add 'Logged In' status
-            if max_follows == 1 and results and not self.is_follow_blocked and not self.is_suspended:
+            if max_follows == 1 and results and not self.is_follow_blocked and not self.is_suspended and not self.is_blocked:
                 # Remove old problematic statuses if account is working normally after test
                 old_statuses_to_remove = [
+                    AIRTABLE_STATUSES['LOGGED_OUT'],
                     AIRTABLE_STATUSES['FOLLOW_BLOCK'],
                     AIRTABLE_STATUSES['WAITING_FOR_APPEAL'],
                     AIRTABLE_STATUSES['SUSPENDED'],
