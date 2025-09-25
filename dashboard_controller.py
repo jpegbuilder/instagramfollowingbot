@@ -2128,21 +2128,21 @@ class ProfileRunner:
                     StatsManager.increment_follow_count(pid)
                     follows_this_hour += 1
 
-                # Check for Something went wrong error
+                # Check for error pages (Something went wrong, Aw Snap, Take a quick pause)
                 if not success and hasattr(bot, 'something_went_wrong') and bot.something_went_wrong:
-                    logger.error(f"Profile {pid}: Instagram error page detected - 'Something went wrong'")
+                    logger.error(f"Profile {pid}: Error page detected - 'Something went wrong', 'Aw, Snap!', or 'Take a quick pause'")
                     
                     # Update local profile status to Blocked
                     with profiles_lock:
                         if key in profiles:
                             profiles[key]['status'] = 'Blocked'
                             profiles[key]['stop_requested'] = True
-                            profiles[key]['airtable_status'] = 'Something went wrong Checkpoint'
-                            logger.info(f"Profile {pid}: Updated local status to Blocked with Something went wrong Checkpoint")
+                            # The airtable_status will be set by the specific error handler
+                            logger.info(f"Profile {pid}: Updated local status to Blocked due to error page")
                     
                     # Stop the profile
                     bot.stop_profile()
-                    logger.info(f"Profile {pid}: Stopped profile due to Something went wrong error")
+                    logger.info(f"Profile {pid}: Stopped profile due to error page")
                     return
 
                 # Check blocks
