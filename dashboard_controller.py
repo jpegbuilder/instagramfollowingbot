@@ -1041,12 +1041,17 @@ class AirtableManager:
                     return False
 
             except Exception as e:
-                logger.error(f"❌ Error updating profile {profile_number} status: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
+                error_msg = str(e)
+                if "403" in error_msg and "INVALID_PERMISSIONS" in error_msg:
+                    logger.warning(f"Profile {profile_number}: Cannot update Status field - it may be synced or read-only. Continuing without update.")
+                    return True  # Return True to continue execution
                 else:
-                    return False
+                    logger.error(f"❌ Error updating profile {profile_number} status: {error_msg}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        return False
 
     @staticmethod
     def remove_profile_status(profile_number, status):
@@ -1094,12 +1099,17 @@ class AirtableManager:
                     return False
 
             except Exception as e:
-                logger.error(f"❌ Error removing status '{status}' from profile {profile_number}: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
+                error_msg = str(e)
+                if "403" in error_msg and "INVALID_PERMISSIONS" in error_msg:
+                    logger.warning(f"Profile {profile_number}: Cannot update Status field - it may be synced or read-only. Continuing without update.")
+                    return True  # Return True to continue execution
                 else:
-                    return False
+                    logger.error(f"❌ Error removing status '{status}' from profile {profile_number}: {error_msg}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        return False
 
     @staticmethod
     def update_reached_follow_limit(profile_number, date_blocked=None):

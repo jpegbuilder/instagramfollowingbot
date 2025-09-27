@@ -21,6 +21,33 @@ try:
 except ImportError:
     USE_WEBDRIVER_MANAGER = False
 
+def get_compatible_chromedriver_version():
+    """Get compatible ChromeDriver version based on Chrome version"""
+    try:
+        import subprocess
+        result = subprocess.run(['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '--version'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            chrome_version = result.stdout.strip().split()[-1]
+            major_version = chrome_version.split('.')[0]
+            logger.info(f"Detected Chrome version: {chrome_version} (major: {major_version})")
+            
+            # Return compatible ChromeDriver version
+            if major_version == "137":
+                return "137.0.7151.69"
+            elif major_version == "138":
+                return "138.0.7106.61"
+            elif major_version == "139":
+                return "139.0.7106.61"
+            elif major_version == "140":
+                return "140.0.7339.207"
+            else:
+                logger.warning(f"Unknown Chrome version {major_version}, using latest")
+                return None
+    except Exception as e:
+        logger.warning(f"Could not detect Chrome version: {e}")
+        return None
+
 # Airtable integration
 try:
     from pyairtable import Api
@@ -139,8 +166,13 @@ def update_airtable_status(profile_number, status):
             return False
 
     except Exception as e:
-        logger.error(f"Profile {profile_number}: Error updating Airtable status to '{status}': {str(e)}")
-        return False
+        error_msg = str(e)
+        if "403" in error_msg and "INVALID_PERMISSIONS" in error_msg:
+            logger.warning(f"Profile {profile_number}: Cannot update Status field - it may be synced or read-only. Continuing without update.")
+            return True  # Return True to continue execution
+        else:
+            logger.error(f"Profile {profile_number}: Error updating Airtable status to '{status}': {error_msg}")
+            return False
 
 
 def remove_airtable_status(profile_number, status):
@@ -184,8 +216,13 @@ def remove_airtable_status(profile_number, status):
             return False
 
     except Exception as e:
-        logger.error(f"Profile {profile_number}: Error removing Airtable status '{status}': {str(e)}")
-        return False
+        error_msg = str(e)
+        if "403" in error_msg and "INVALID_PERMISSIONS" in error_msg:
+            logger.warning(f"Profile {profile_number}: Cannot update Status field - it may be synced or read-only. Continuing without update.")
+            return True  # Return True to continue execution
+        else:
+            logger.error(f"Profile {profile_number}: Error removing Airtable status '{status}': {error_msg}")
+            return False
 
 
 def get_airtable_record_by_profile(profile_number):
@@ -756,37 +793,27 @@ class InstagramFollowBot:
         
         for conn_attempt in range(max_connection_retries):
             try:
-                chrome_options = Options()
-                chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{self.debug_port}")
-                
-                # Enable 3rd-party cookies for reCAPTCHA to work properly
-                chrome_options.add_argument("--disable-features=BlockThirdPartyCookies")
-                chrome_options.add_experimental_option("prefs", {
-                    "profile.default_content_setting_values.cookies": 1,
-                    "profile.block_third_party_cookies": False
-                })
-                
-                # Enable performance logs via CDP for rqdata extraction
-                # This is more reliable than loggingPrefs capability
-
-                # Method 1: Try to get ChromeDriver path from AdsPower API response
+                # Method 1: Try AdsPower ChromeDriver with minimal options (most reliable for remote deployment)
                 chrome_driver_path = None
                 if self.adspower_response and 'data' in self.adspower_response:
                     chrome_driver_path = self.adspower_response['data'].get('webdriver')
                     if chrome_driver_path:
-                        logger.info(
-                            f"Profile No.{self.profile_id}: Using ChromeDriver from AdsPower API: {chrome_driver_path}")
+                        logger.info(f"Profile No.{self.profile_id}: Using ChromeDriver from AdsPower API: {chrome_driver_path}")
                         try:
                             service = Service(chrome_driver_path)
+                            
+                            # Create minimal ChromeOptions for AdsPower ChromeDriver compatibility
+                            minimal_options = Options()
+                            minimal_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{self.debug_port}")
                             
                             # Try to use selenium-wire for rqdata extraction
                             try:
                                 from seleniumwire import webdriver as wire_webdriver
-                                self.driver = wire_webdriver.Chrome(service=service, options=chrome_options)
+                                self.driver = wire_webdriver.Chrome(service=service, options=minimal_options)
                                 logger.info(f"Profile No.{self.profile_id}: Using selenium-wire for network monitoring")
                             except ImportError:
                                 # Fallback to regular selenium if selenium-wire not available
-                                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                                self.driver = webdriver.Chrome(service=service, options=minimal_options)
                                 logger.info(f"Profile No.{self.profile_id}: Using regular selenium (selenium-wire not available)")
                             
                             # Enable CDP for performance logs and rqdata extraction
@@ -797,18 +824,25 @@ class InstagramFollowBot:
                             except Exception as e:
                                 logger.warning(f"Profile No.{self.profile_id}: Could not enable CDP: {e}")
                             
-                            logger.info(
-                                f"Profile No.{self.profile_id}: Connected to browser successfully using AdsPower ChromeDriver")
+                            logger.info(f"Profile No.{self.profile_id}: Connected to browser successfully using AdsPower ChromeDriver")
                             return True
                         except Exception as e:
                             logger.warning(f"Profile No.{self.profile_id}: AdsPower ChromeDriver failed: {str(e)[:100]}...")
 
-                # Method 2: Use webdriver-manager (if available)
+                # Method 2: Use webdriver-manager as fallback (for non-AdsPower environments)
                 if USE_WEBDRIVER_MANAGER:
-                    logger.info(f"Profile No.{self.profile_id}: Using webdriver-manager to handle ChromeDriver")
+                    logger.info(f"Profile No.{self.profile_id}: Using webdriver-manager as fallback")
                     try:
-                        # Try Chrome 137 compatible version
-                        service = Service(ChromeDriverManager(version="137.0.7106.61").install())
+                        service = Service(ChromeDriverManager().install())
+                        
+                        # Create full ChromeOptions for webdriver-manager
+                        chrome_options = Options()
+                        chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{self.debug_port}")
+                        chrome_options.add_argument("--disable-features=BlockThirdPartyCookies")
+                        chrome_options.add_experimental_option("prefs", {
+                            "profile.default_content_setting_values.cookies": 1,
+                            "profile.block_third_party_cookies": False
+                        })
                         
                         # Try to use selenium-wire for rqdata extraction
                         try:
@@ -817,56 +851,22 @@ class InstagramFollowBot:
                             logger.info(f"Profile No.{self.profile_id}: Using selenium-wire for network monitoring")
                         except ImportError:
                             self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                        logger.info(f"Profile No.{self.profile_id}: Connected using webdriver-manager (Chrome 137)")
+                        logger.info(f"Profile No.{self.profile_id}: Connected using webdriver-manager")
                         return True
                     except Exception as e:
-                        logger.info(f"Profile No.{self.profile_id}: webdriver-manager Chrome 137 failed: {e}")
-                        try:
-                            # Fallback to Chrome 138
-                            service = Service(ChromeDriverManager(version="138.0.7106.61").install())
-                            
-                            # Try to use selenium-wire for rqdata extraction
-                            try:
-                                from seleniumwire import webdriver as wire_webdriver
-                                self.driver = wire_webdriver.Chrome(service=service, options=chrome_options)
-                                logger.info(f"Profile No.{self.profile_id}: Using selenium-wire for network monitoring")
-                            except ImportError:
-                                self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                            logger.info(f"Profile No.{self.profile_id}: Connected using webdriver-manager (Chrome 138)")
-                            return True
-                        except Exception as e2:
-                            logger.info(f"Profile No.{self.profile_id}: webdriver-manager Chrome 138 failed: {e2}")
-                            try:
-                                # Last resort - latest version
-                                logger.info(f"Profile No.{self.profile_id}: Trying with latest ChromeDriver version")
-                                service = Service(ChromeDriverManager().install())
-                                
-                                # Try to use selenium-wire for rqdata extraction
-                                try:
-                                    from seleniumwire import webdriver as wire_webdriver
-                                    self.driver = wire_webdriver.Chrome(service=service, options=chrome_options)
-                                    logger.info(f"Profile No.{self.profile_id}: Using selenium-wire for network monitoring")
-                                except ImportError:
-                                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                                logger.info(f"Profile No.{self.profile_id}: Connected using webdriver-manager (latest)")
-                                return True
-                            except Exception as e3:
-                                logger.warning(f"Profile No.{self.profile_id}: All webdriver-manager attempts failed: {e3}")
+                        logger.warning(f"Profile No.{self.profile_id}: webdriver-manager failed: {e}")
 
-                # Method 3: Use ChromeDriver from local chromedrivers folder
-                if os.path.exists(CHROMEDRIVER_PATH):
-                    logger.info(f"Profile No.{self.profile_id}: Using ChromeDriver from local folder: {CHROMEDRIVER_PATH}")
-                    try:
-                        service = Service(CHROMEDRIVER_PATH)
-                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                        logger.info(f"Profile No.{self.profile_id}: Connected using local ChromeDriver")
-                        return True
-                    except Exception as e:
-                        logger.warning(f"Profile No.{self.profile_id}: Local ChromeDriver failed: {str(e)[:100]}...")
-
-                # Method 4: Try to use ChromeDriver from PATH
-                logger.info(f"Profile No.{self.profile_id}: Trying to use ChromeDriver from system PATH")
+                # Method 3: Try system PATH ChromeDriver (for environments with pre-installed ChromeDriver)
+                logger.info(f"Profile No.{self.profile_id}: Trying system PATH ChromeDriver")
                 try:
+                    chrome_options = Options()
+                    chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{self.debug_port}")
+                    chrome_options.add_argument("--disable-features=BlockThirdPartyCookies")
+                    chrome_options.add_experimental_option("prefs", {
+                        "profile.default_content_setting_values.cookies": 1,
+                        "profile.block_third_party_cookies": False
+                    })
+                    
                     self.driver = webdriver.Chrome(options=chrome_options)
                     logger.info(f"Profile No.{self.profile_id}: Connected using system PATH ChromeDriver")
                     return True
@@ -1324,10 +1324,125 @@ class InstagramFollowBot:
             logger.warning(f"Profile No.{self.profile_id}: Error checking suspension: {str(e)[:100]}...")
             return False
 
+    def _handle_appeal_screen(self):
+        """Handle Instagram appeal screen by clicking the Appeal button"""
+        try:
+            logger.info(f"Profile No.{self.profile_id}: 📋 Handling appeal screen...")
+            
+            # Multiple selectors for Appeal button (Instagram changes their HTML structure frequently)
+            appeal_button_selectors = [
+                "//button[contains(text(), 'Appeal')]",
+                "//button[contains(normalize-space(text()), 'Appeal')]",
+                "//*[contains(text(), 'Appeal') and (@role='button' or self::button)]",
+                "//div[@role='button' and contains(text(), 'Appeal')]",
+                "//a[contains(text(), 'Appeal')]",
+                "//*[contains(@class, 'appeal') and contains(text(), 'Appeal')]",
+                "//button[contains(@class, 'appeal')]",
+                "//*[contains(@data-testid, 'appeal')]",
+                "//button[contains(@aria-label, 'Appeal')]",
+                "//*[contains(@title, 'Appeal')]",
+                # Додаткові варіанти для різних мов
+                "//button[contains(text(), 'Оскаржити')]",
+                "//button[contains(text(), 'Appeler')]",
+                "//button[contains(text(), 'Apelar')]",
+                "//button[contains(text(), 'Einspruch')]",
+                "//button[contains(text(), '申诉')]",
+                "//button[contains(text(), 'アピール')]",
+                # Загальні селектори для кнопок
+                "//button[contains(@class, 'button')]",
+                "//button[@type='button']",
+                "//div[@role='button']",
+                "//a[@role='button']",
+                # Селектори за стилями
+                "//*[contains(@style, 'background') and contains(text(), 'Appeal')]",
+                "//*[contains(@style, 'background') and contains(text(), 'Оскаржити')]"
+            ]
+            
+            appeal_clicked = False
+            
+            for i, selector in enumerate(appeal_button_selectors):
+                try:
+                    appeal_elements = self.driver.find_elements(By.XPATH, selector)
+                    for element in appeal_elements:
+                        if element.is_displayed() and element.is_enabled():
+                            element_text = element.text.strip() if hasattr(element, 'text') and element.text else element.get_attribute('aria-label') or element.get_attribute('title') or 'no text'
+                            
+                            logger.info(f"Profile No.{self.profile_id}: 🎯 Found Appeal button with selector {i+1}: '{element_text}'")
+                            
+                            # Try different click methods
+                            try:
+                                element.click()
+                                logger.info(f"Profile No.{self.profile_id}: ✅ Appeal button clicked successfully")
+                                appeal_clicked = True
+                                break
+                            except Exception as click_error:
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", element)
+                                    logger.info(f"Profile No.{self.profile_id}: ✅ Appeal button clicked via JavaScript")
+                                    appeal_clicked = True
+                                    break
+                                except Exception as js_error:
+                                    logger.warning(f"Profile No.{self.profile_id}: ⚠️ Both click methods failed for this element")
+                                    continue
+                    
+                    if appeal_clicked:
+                        break
+                        
+                except Exception as selector_error:
+                    continue
+            
+            if not appeal_clicked:
+                # Fallback: search for any clickable element containing "Appeal" text
+                logger.info(f"Profile No.{self.profile_id}: 🔍 Fallback: searching for any clickable element with 'Appeal' text...")
+                
+                try:
+                    all_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Appeal')]")
+                    for element in all_elements:
+                        try:
+                            if element.is_displayed():
+                                tag = element.tag_name
+                                text = element.text.strip() if hasattr(element, 'text') and element.text else 'no text'
+                                
+                                # Try to click on the element or its parent
+                                try:
+                                    element.click()
+                                    logger.info(f"Profile No.{self.profile_id}: ✅ Fallback click successful on <{tag}>: '{text}'")
+                                    appeal_clicked = True
+                                    break
+                                except:
+                                    try:
+                                        parent = element.find_element(By.XPATH, "..")
+                                        if parent:
+                                            parent.click()
+                                            logger.info(f"Profile No.{self.profile_id}: ✅ Fallback click successful on parent of <{tag}>: '{text}'")
+                                            appeal_clicked = True
+                                            break
+                                    except:
+                                        continue
+                        except:
+                            continue
+                except Exception as e:
+                    logger.warning(f"Profile No.{self.profile_id}: ⚠️ Fallback search failed: {e}")
+            
+            if appeal_clicked:
+                time.sleep(3)  # Wait for page to load after clicking Appeal
+                logger.info(f"Profile No.{self.profile_id}: ✅ Appeal button clicked successfully")
+                return True
+            else:
+                logger.error(f"Profile No.{self.profile_id}: ❌ Could not find or click Appeal button")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Profile No.{self.profile_id}: ❌ Error handling appeal screen: {e}")
+            return False
+
     def _run_appeal_flow(self):
         """Run Appeal Flow for banned/suspended accounts"""
         try:
             logger.info(f"Profile No.{self.profile_id}: 🚫 Account banned/suspended - starting Appeal Flow...")
+            
+            # First, try to click the Appeal button if we're on the appeal screen
+            self._handle_appeal_screen()
             
             # Update status to Banned
             update_airtable_status(self.profile_id, AIRTABLE_STATUSES['BANNED'])

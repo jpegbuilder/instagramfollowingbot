@@ -2901,7 +2901,7 @@ class InstagramAppealFlow:
                     self.log("⚠️ Низький баланс DaisySMS! Може не вистачити для SMS")
             
             # Запитуємо номер згідно з API daisysms
-            get_number_url = f"{DAISYSMS_API_URL}"
+            get_number_url = f"{DAISYSMS_BASE_URL}"
             params = {
                 'api_key': DAISYSMS_API_KEY,
                 'action': 'getNumber',
@@ -2976,7 +2976,7 @@ class InstagramAppealFlow:
                     self.log(f"🧪 ТЕСТОВИЙ РЕЖИМ: Симуляція SMS коду: {test_code}")
                     return test_code
                 
-                check_url = f"{DAISYSMS_API_URL}"
+                check_url = f"{DAISYSMS_BASE_URL}"
                 params = {
                     'api_key': DAISYSMS_API_KEY,
                     'action': 'getStatus',
@@ -3048,7 +3048,7 @@ class InstagramAppealFlow:
         try:
             self.log("💰 Перевірка балансу SMS сервісу...")
             
-            check_url = f"{DAISYSMS_API_URL}"
+            check_url = f"{DAISYSMS_BASE_URL}"
             params = {
                 'api_key': DAISYSMS_API_KEY,
                 'action': 'getBalance'
@@ -3677,6 +3677,218 @@ class InstagramAppealFlow:
             self.log(f"❌ Помилка обробки чекпоінту {checkpoint_type}: {e}")
             return False
     
+    def detect_suspension_page(self):
+        """
+        Детекція сторінки блокування акаунту Instagram
+        
+        Returns:
+            bool: True якщо сторінка блокування виявлена
+        """
+        try:
+            current_url = self.driver.current_url.lower()
+            page_source = self.driver.page_source.lower()
+            
+            # Індикатори сторінки блокування
+            suspension_indicators = [
+                "we suspended your account",
+                "suspended your account", 
+                "account suspended",
+                "suspended on",
+                "days left to appeal",
+                "permanently disable",
+                "why this happened",
+                "what this means",
+                "community standards",
+                "account integrity"
+            ]
+            
+            # Перевіряємо наявність індикаторів
+            found_indicators = []
+            for indicator in suspension_indicators:
+                if indicator in page_source:
+                    found_indicators.append(indicator)
+            
+            if len(found_indicators) >= 3:  # Потрібно мінімум 3 індикатори для підтвердження
+                self.log(f"✅ Сторінка блокування виявлена. Знайдені індикатори: {found_indicators}")
+                return True
+            
+            # Додаткова перевірка через URL
+            if any(keyword in current_url for keyword in ['suspended', 'disabled', 'restricted']):
+                self.log("✅ Сторінка блокування виявлена через URL")
+                return True
+            
+            self.log("ℹ️ Сторінка блокування не виявлена")
+            return False
+            
+        except Exception as e:
+            self.log(f"❌ Помилка детекції сторінки блокування: {e}")
+            return False
+    
+    def find_appeal_button(self):
+        """
+        Пошук кнопки Appeal з урахуванням динамічних тегів та стилів
+        
+        Returns:
+            WebElement або None: Знайдений елемент кнопки
+        """
+        try:
+            # Різні селектори для пошуку кнопки Appeal
+            appeal_selectors = [
+                # Текст кнопки
+                "//*[contains(text(), 'Appeal')]",
+                "//*[contains(text(), 'appeal')]",
+                "//*[contains(text(), 'APPEAL')]",
+                
+                # Кнопки з текстом Appeal
+                "//button[contains(text(), 'Appeal')]",
+                "//input[contains(@value, 'Appeal')]",
+                "//a[contains(text(), 'Appeal')]",
+                "//div[contains(text(), 'Appeal')]",
+                
+                # Кнопки з класами що містять appeal
+                "//button[contains(@class, 'appeal')]",
+                "//button[contains(@class, 'Appeal')]",
+                "//div[contains(@class, 'appeal')]",
+                
+                # Кнопки з ID що містять appeal
+                "//button[contains(@id, 'appeal')]",
+                "//button[contains(@id, 'Appeal')]",
+                
+                # Кнопки з data-атрибутами
+                "//button[contains(@data-testid, 'appeal')]",
+                "//button[contains(@data-testid, 'Appeal')]",
+                "//button[contains(@data-test, 'appeal')]",
+                
+                # CSS селектори
+                "button[class*='appeal']",
+                "button[id*='appeal']",
+                "input[value*='Appeal']",
+                "a[href*='appeal']",
+                "div[class*='appeal']",
+                
+                # Загальні селектори кнопок
+                "button[type='submit']",
+                "input[type='submit']",
+                "button[type='button']"
+            ]
+            
+            # Спочатку шукаємо за текстом
+            for selector in appeal_selectors[:10]:  # Перші 10 селекторів за текстом
+                try:
+                    if selector.startswith("//"):
+                        elements = self.driver.find_elements(By.XPATH, selector)
+                    else:
+                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    
+                    for element in elements:
+                        if element.is_displayed() and element.is_enabled():
+                            # Додаткова перевірка тексту
+                            element_text = element.text.lower()
+                            element_value = element.get_attribute('value')
+                            if element_value:
+                                element_value = element_value.lower()
+                            
+                            if ('appeal' in element_text or 
+                                (element_value and 'appeal' in element_value)):
+                                self.log(f"✅ Кнопка Appeal знайдена: {selector}")
+                                return element
+                except:
+                    continue
+            
+            # Якщо не знайшли за текстом, шукаємо за стилями та позицією
+            for selector in appeal_selectors[10:]:
+                try:
+                    if selector.startswith("//"):
+                        elements = self.driver.find_elements(By.XPATH, selector)
+                    else:
+                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    
+                    for element in elements:
+                        if element.is_displayed() and element.is_enabled():
+                            # Перевіряємо чи це кнопка внизу сторінки (типова позиція для Appeal)
+                            location = element.location
+                            size = self.driver.get_window_size()
+                            
+                            # Якщо кнопка в нижній частині сторінки
+                            if location['y'] > size['height'] * 0.6:
+                                self.log(f"✅ Кнопка Appeal знайдена за позицією: {selector}")
+                                return element
+                except:
+                    continue
+            
+            self.log("⚠️ Кнопка Appeal не знайдена")
+            return None
+            
+        except Exception as e:
+            self.log(f"❌ Помилка пошуку кнопки Appeal: {e}")
+            return None
+    
+    def click_appeal_button(self):
+        """
+        Натискання кнопки Appeal з різними методами кліку
+        
+        Returns:
+            bool: True якщо кнопка натиснута успішно
+        """
+        try:
+            appeal_button = self.find_appeal_button()
+            if not appeal_button:
+                self.log("❌ Кнопка Appeal не знайдена")
+                return False
+            
+            # Спробуємо різні методи кліку
+            click_methods = [
+                ("звичайний клік", lambda: appeal_button.click()),
+                ("JavaScript клік", lambda: self.driver.execute_script("arguments[0].click();", appeal_button)),
+                ("ActionChains клік", lambda: ActionChains(self.driver).move_to_element(appeal_button).click().perform()),
+                ("клік з прокруткою", lambda: self.scroll_and_click(appeal_button))
+            ]
+            
+            for method_name, click_method in click_methods:
+                try:
+                    self.log(f"🔄 Спробуємо {method_name}...")
+                    click_method()
+                    time.sleep(3)  # Чекаємо завантаження
+                    
+                    # Перевіряємо чи сторінка змінилася
+                    new_url = self.driver.current_url
+                    if new_url != self.driver.current_url:
+                        self.log(f"✅ Кнопка Appeal натиснута успішно ({method_name})")
+                        return True
+                    
+                    # Перевіряємо чи з'явилися нові елементи
+                    if self.detect_appeal_checkpoint():
+                        self.log(f"✅ Кнопка Appeal натиснута успішно ({method_name}) - виявлено нові чекпоінти")
+                        return True
+                        
+                except Exception as e:
+                    self.log(f"⚠️ {method_name} не спрацював: {e}")
+                    continue
+            
+            self.log("❌ Всі методи кліку не спрацювали")
+            return False
+            
+        except Exception as e:
+            self.log(f"❌ Помилка натискання кнопки Appeal: {e}")
+            return False
+    
+    def scroll_and_click(self, element):
+        """
+        Прокрутка до елемента та клік
+        
+        Args:
+            element: WebElement для кліку
+        """
+        try:
+            # Прокручуємо до елемента
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
+            time.sleep(1)
+            
+            # Клікаємо
+            element.click()
+        except Exception as e:
+            raise e
+    
     def detect_appeal_checkpoint(self):
         """
         Детекція типу чекпоінту апеляції на поточній сторінці
@@ -3816,6 +4028,22 @@ class InstagramAppealFlow:
             self.log("🚀 Запуск Appeal Flow...")
             self.appeal_status = "APPEAL_STARTED"
             
+            # Спочатку перевіряємо чи це сторінка блокування
+            if self.detect_suspension_page():
+                self.log("🔍 Виявлено сторінку блокування акаунту")
+                
+                # Намагаємося натиснути кнопку Appeal
+                if self.click_appeal_button():
+                    self.log("✅ Кнопка Appeal натиснута успішно")
+                    time.sleep(5)  # Чекаємо завантаження наступної сторінки
+                else:
+                    self.log("❌ Не вдалося натиснути кнопку Appeal")
+                    return {
+                        'success': False,
+                        'status': 'APPEAL_BUTTON_NOT_FOUND',
+                        'message': 'Не вдалося знайти або натиснути кнопку Appeal'
+                    }
+            
             max_attempts = APPEAL_SETTINGS['max_appeal_attempts']
             attempt = 0
             
@@ -3883,4 +4111,51 @@ class InstagramAppealFlow:
                 'success': False,
                 'status': 'APPEAL_FAILED',
                 'message': f'Критична помилка: {str(e)}'
+            }
+    
+    def handle_suspension_page(self, profile_info):
+        """
+        Обробка сторінки блокування акаунту
+        
+        Args:
+            profile_info: Інформація про профіль
+            
+        Returns:
+            dict: Результат обробки сторінки блокування
+        """
+        try:
+            self.log("🔍 Перевіряємо сторінку блокування...")
+            
+            # Детектуємо сторінку блокування
+            if not self.detect_suspension_page():
+                self.log("ℹ️ Сторінка блокування не виявлена")
+                return {
+                    'success': False,
+                    'status': 'NOT_SUSPENSION_PAGE',
+                    'message': 'Поточна сторінка не є сторінкою блокування'
+                }
+            
+            self.log("✅ Сторінка блокування виявлена")
+            
+            # Намагаємося натиснути кнопку Appeal
+            if self.click_appeal_button():
+                self.log("✅ Кнопка Appeal натиснута успішно")
+                time.sleep(5)  # Чекаємо завантаження
+                
+                # Запускаємо повний appeal flow
+                return self.run_appeal_flow(profile_info)
+            else:
+                self.log("❌ Не вдалося натиснути кнопку Appeal")
+                return {
+                    'success': False,
+                    'status': 'APPEAL_BUTTON_NOT_FOUND',
+                    'message': 'Не вдалося знайти або натиснути кнопку Appeal'
+                }
+                
+        except Exception as e:
+            self.log(f"❌ Помилка обробки сторінки блокування: {e}")
+            return {
+                'success': False,
+                'status': 'SUSPENSION_PAGE_ERROR',
+                'message': f'Помилка обробки сторінки блокування: {str(e)}'
             }
