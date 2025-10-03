@@ -49,7 +49,7 @@ PORT = 8080
 STATS_FILE = 'profile_stats.json'
 STATUS_FILE = 'profile_status.json'
 CONFIG_FILE = 'config.json'
-MAX_CONCURRENT_PROFILES = 50
+MAX_CONCURRENT_PROFILES = 70
 
 # Global state with thread-safe access
 profiles = {}
@@ -1692,7 +1692,7 @@ class ConcurrencyManager:
         global auto_replacement_enabled
         with auto_replacement_lock:
             auto_replacement_enabled = True
-            logger.info("Auto replacement enabled - system will maintain 50 active profiles")
+            logger.info("Auto replacement enabled - system will maintain 70 active profiles")
 
     @staticmethod
     def disable_auto_replacement():
@@ -1781,7 +1781,7 @@ class ConcurrencyManager:
     @staticmethod
     def can_start_new_profile():
         """Check if we can start a new profile (only Running count matters for the limit)"""
-        # Count only Running profiles for the 50 limit - use single lock
+        # Count only Running profiles for the 70 limit - use single lock
         with profiles_lock:
             running_count = 0
             for pid, info in profiles.items():
@@ -1846,7 +1846,7 @@ class ConcurrencyManager:
             
             total_working = running_count + queueing_count
             
-            # If we have less than 50 working profiles, try to start more
+            # If we have less than 70 working profiles, try to start more
             if total_working < MAX_CONCURRENT_PROFILES:
                 available_slots = MAX_CONCURRENT_PROFILES - total_working
                 logger.info(f"Maintaining limit: Running={running_count}, Queueing={queueing_count}, Available slots={available_slots}")
@@ -2578,7 +2578,7 @@ def start_all_profiles_backend(vps_filter='all', phase_filter='all', batch_filte
     def _start_all_async():
         """Run the actual start process async"""
         try:
-            # Get current Running profiles count (only Running matters for the 50 limit)
+            # Get current Running profiles count (only Running matters for the 70 limit)
             current_running = 0
             with profiles_lock:
                 for pid, info in profiles.items():
@@ -2636,7 +2636,7 @@ def start_all_profiles_backend(vps_filter='all', phase_filter='all', batch_filte
             
             alive_profiles.sort(key=get_sort_key)
 
-            # Limit to available slots (max 50 active profiles)
+            # Limit to available slots (max 70 active profiles)
             profiles_to_start = alive_profiles[:available_slots]
             
             logger.info(f"Found {len(alive_profiles)} eligible profiles, will start {len(profiles_to_start)} (limited by {MAX_CONCURRENT_PROFILES} max concurrent)")

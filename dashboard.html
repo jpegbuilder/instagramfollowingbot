@@ -2119,7 +2119,7 @@
 
             const filterSummary = `VPS: ${currentVps === 'all' ? 'All VPS' : currentVps}\nPhase: ${currentPhase === 'all' ? 'All Phases' : currentPhase}\nBatch: ${currentBatch === 'all' ? 'All Batches' : currentBatch}\nStatus Filter: ${currentFilter}`;
 
-            if (confirm(`Start all profiles matching current filters?\n\n${filterSummary}\n\nThis will automatically start up to 50 profiles concurrently (respecting the 50 active profile limit).`)) {
+            if (confirm(`Start all profiles matching current filters?\n\n${filterSummary}\n\nThis will automatically start up to 70 profiles concurrently (respecting the 70 active profile limit).`)) {
                 // Set flag to prevent double-clicking
                 isStartAllRunning = true;
                 
